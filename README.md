@@ -45,6 +45,16 @@ management/
 
 ## セットアップ
 
+### 担当者（初心者）向け: GitHub Codespaces（推奨・ターミナル不要）
+ブラウザだけで開発できます。パソコンへのインストール不要。
+→ **[docs/GETTING_STARTED.md](./docs/GETTING_STARTED.md)** を参照。
+
+要点:
+- GitHub の「Code → Codespaces → New with options」で**自分の担当ブランチ**を選んで作成
+- `.devcontainer/devcontainer.json` が起動時に自動で `pnpm install` と Claude Code 拡張の導入まで行う
+- Claude Code に日本語で頼むと、コードもgitも自動。書いたものは自分のブランチへ自動push
+
+### ローカルで動かす場合
 ```bash
 corepack enable pnpm    # 未導入なら
 pnpm install            # ルートで1回

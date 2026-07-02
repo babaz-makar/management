@@ -1,0 +1,26 @@
+{
+  "name": "management (Next.js monorepo)",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  // Codespace 作成時に自動で pnpm を有効化し依存をインストール（ターミナル操作不要）
+  "postCreateCommand": "sudo corepack enable && pnpm install",
+  "customizations": {
+    "vscode": {
+      // Claude Code 拡張を自動インストール。開いたら左のパネルから話しかけるだけ
+      "extensions": [
+        "anthropic.claude-code",
+        "dbaeumer.vscode-eslint"
+      ]
+    }
+  },
+  // apps/web の開発サーバー用ポート
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "web preview",
+      "onAutoForward": "openPreview"
+    }
+  }
+}
