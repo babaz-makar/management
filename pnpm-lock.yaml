@@ -14,6 +14,18 @@ importers:
 
   apps/web:
     dependencies:
+      '@management/feature-a':
+        specifier: workspace:*
+        version: link:../../packages/feature-a
+      '@management/feature-b':
+        specifier: workspace:*
+        version: link:../../packages/feature-b
+      '@management/feature-c':
+        specifier: workspace:*
+        version: link:../../packages/feature-c
+      '@management/feature-d':
+        specifier: workspace:*
+        version: link:../../packages/feature-d
       next:
         specifier: ^15.5.0
         version: 15.5.19(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -33,6 +45,70 @@ importers:
       '@types/react-dom':
         specifier: ^19.1.0
         version: 19.2.3(@types/react@19.2.17)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
+  packages/feature-a:
+    dependencies:
+      react:
+        specifier: '>=19'
+        version: 19.2.7
+      react-dom:
+        specifier: '>=19'
+        version: 19.2.7(react@19.2.7)
+    devDependencies:
+      '@types/react':
+        specifier: ^19.1.0
+        version: 19.2.17
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
+  packages/feature-b:
+    dependencies:
+      react:
+        specifier: '>=19'
+        version: 19.2.7
+      react-dom:
+        specifier: '>=19'
+        version: 19.2.7(react@19.2.7)
+    devDependencies:
+      '@types/react':
+        specifier: ^19.1.0
+        version: 19.2.17
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
+  packages/feature-c:
+    dependencies:
+      react:
+        specifier: '>=19'
+        version: 19.2.7
+      react-dom:
+        specifier: '>=19'
+        version: 19.2.7(react@19.2.7)
+    devDependencies:
+      '@types/react':
+        specifier: ^19.1.0
+        version: 19.2.17
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
+  packages/feature-d:
+    dependencies:
+      react:
+        specifier: '>=19'
+        version: 19.2.7
+      react-dom:
+        specifier: '>=19'
+        version: 19.2.7(react@19.2.7)
+    devDependencies:
+      '@types/react':
+        specifier: ^19.1.0
+        version: 19.2.17
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
