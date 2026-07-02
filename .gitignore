@@ -25,3 +25,6 @@ pnpm-debug.log*
 .DS_Store
 .vscode/
 .idea/
+
+# claude code (personal settings; 共有は .claude/settings.json)
+.claude/settings.local.json
