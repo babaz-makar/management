@@ -1,13 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // ワークスペースの機能パッケージ (TSX ソースを直接配信) をトランスパイル対象にする
-  transpilePackages: [
-    "@management/feature-a",
-    "@management/feature-b",
-    "@management/feature-c",
-    "@management/feature-d",
-  ],
+  // 自分のツールをここでプレビューする場合、そのパッケージ名を追加する
+  // 例: transpilePackages: ["@management/my-tool"],
+  transpilePackages: [],
 };
 
 export default nextConfig;

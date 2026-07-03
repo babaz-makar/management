@@ -1,12 +1,12 @@
 # management
 
-4つの機能を開発し、最終的に**本アプリ（単一 Next.js）へ「共有パッケージ」単位で結合する**ためのモノレポ（機能インキュベーター）です。
+複数のツールを個別に開発し、最終的に**本アプリ（単一 Next.js）へ「共有パッケージ」単位で結合する**ためのモノレポ（機能インキュベーター）です。
 
 > **設計方針**
-> - 各機能は `packages/feature-*` として **react のみに依存する自己完結パッケージ** にする
-> - `apps/web` は **プレビュー / 動作確認用のホストアプリ**（4機能を import して表示するだけ）
-> - 本アプリへは `packages/feature-x/src/` を **フォルダごとコピー** すれば結合できる形にしてある
-> - 「機能の分離」は **branch ではなくフォルダ（パッケージ）** で行う
+> - 各ツールは `packages/{ツール名}` として **react のみに依存する自己完結パッケージ** にする
+> - `apps/web` は **プレビュー / 動作確認用のホストアプリ**
+> - 本アプリへは `packages/{ツール名}/src/` を **フォルダごとコピー** すれば結合できる形にしてある
+> - 「ツールの分離」は **フォルダ（パッケージ）＋ ツールごとのブランチ** で行う
 
 ---
 
@@ -15,23 +15,17 @@
 ```
 management/
 ├── apps/
-│   └── web/                      # プレビュー用ホスト。4機能を import して確認するだけ
-│       ├── src/app/page.tsx      # FeatureA〜D を並べて表示
-│       └── next.config.ts        # transpilePackages に4機能を登録
+│   └── web/                      # プレビュー用ホスト
 ├── packages/
-│   ├── feature-a/                # ← 本アプリへ移植する単位
+│   ├── _template/                # ← 新しいツールのお手本。コピーして使う
 │   │   ├── src/index.ts          #    公開API (バレル)
-│   │   ├── src/FeatureA.tsx      #    実装本体 (外部依存は react のみ)
-│   │   └── package.json          #    @management/feature-a
-│   ├── feature-b/                # @management/feature-b
-│   ├── feature-c/                # @management/feature-c
-│   └── feature-d/                # @management/feature-d
+│   │   ├── src/ToolTemplate.tsx  #    実装本体 (外部依存は react のみ)
+│   │   └── package.json          #    @management/tool-template
+│   └── {ツール名}/               # 各ツール (例: @management/photo-picker)
 ├── pnpm-workspace.yaml
 ├── turbo.json
 └── package.json
 ```
-
-> `feature-a`〜`feature-d` は仮名です。実際の機能名が決まったらフォルダ名・`package.json` の `name`・コンポーネント名をリネームしてください。
 
 ## 使用ツール
 
@@ -45,81 +39,65 @@ management/
 
 ## セットアップ
 
-### 担当者（初心者）向け: GitHub Codespaces（推奨・ターミナル不要）
-ブラウザだけで開発できます。パソコンへのインストール不要。
-→ **[docs/GETTING_STARTED.md](./docs/GETTING_STARTED.md)** を参照。
-
-要点:
-- GitHub の「Code → Codespaces → New with options」で**自分の担当ブランチ**を選んで作成
-- `.devcontainer/devcontainer.json` が起動時に自動で `pnpm install` と Claude Code 拡張の導入まで行う
-- Claude Code に日本語で頼むと、コードもgitも自動。書いたものは自分のブランチへ自動push
-
-### ローカルで動かす場合
 ```bash
 corepack enable pnpm    # 未導入なら
 pnpm install            # ルートで1回
-pnpm dev                # apps/web が起動し4機能をプレビュー
+pnpm dev                # apps/web が起動
 ```
 
-各機能を開発するときは `packages/feature-x/src/` を編集すれば、`apps/web` にホットリロードで反映されます。
+運用ルール（ブランチモデル・担当スコープ・ツール初期化手順）は **[CLAUDE.md](./CLAUDE.md)** を参照してください。
 
 ---
 
-## 機能の開発ルール（結合しやすさを保つため）
+## 新しいツールを作る（概要）
 
-本アプリへ「そのままコピー」できるよう、各 `packages/feature-*` は次を守ります。
+```bash
+git fetch origin
+git checkout -b feature/{ツール名} origin/main   # ツール専用ブランチ
+cp -r packages/_template packages/{ツール名}      # お手本をコピー
+# package.json の name を @management/{ツール名} に、index.ts / コンポーネントをリネーム
+pnpm install
+```
+
+詳細は [CLAUDE.md](./CLAUDE.md) を参照。
+
+---
+
+## ツールの開発ルール（結合しやすさを保つため）
+
+本アプリへ「そのままコピー」できるよう、各 `packages/{ツール名}` は次を守ります。
 
 1. **外部依存は react（と必要なら react-dom）のみ**に抑える
-   - 他の npm パッケージが必要なら、その機能の `package.json` に明記し、結合時に本アプリへも追加する
+   - 他の npm パッケージが必要なら、そのツールの `package.json` に明記し、結合時に本アプリへも追加する
 2. **パッケージ内の import は相対パス**にする（`./`, `../`）
    - コピー後もパスが壊れない
 3. **公開するものは `src/index.ts`（バレル）に集約**する
    - 本アプリからは `index.ts` 経由でのみ使う想定
-4. 機能をまたぐ共有コードが出てきたら `packages/shared` を作ってそこに置く
+4. 複数ツールで共有するコードが出てきたら `packages/shared` を作ってそこに置く
 
 ---
 
 ## 本アプリ（単一 Next.js）への結合手順
 
-例として `feature-a` を結合する場合：
+例として `photo-picker` を結合する場合：
 
-1. `packages/feature-a/src/` を本アプリの `src/features/feature-a/` に**フォルダごとコピー**
+1. `packages/photo-picker/src/` を本アプリの `src/features/photo-picker/` に**フォルダごとコピー**
    ```bash
-   cp -r packages/feature-a/src /path/to/main-app/src/features/feature-a
+   cp -r packages/photo-picker/src /path/to/main-app/src/features/photo-picker
    ```
 2. 本アプリ側で import する
    ```tsx
-   import { FeatureA } from "@/features/feature-a"; // = src/features/feature-a/index.ts
+   import { PhotoPicker } from "@/features/photo-picker"; // = src/features/photo-picker/index.ts
    ```
-3. その機能が追加の npm 依存を持っていれば、本アプリに `pnpm add` する
-4. 4機能ぶん 1〜3 を繰り返す
+3. そのツールが追加の npm 依存を持っていれば、本アプリに `pnpm add` する
 
 > パッケージ内が相対 import で完結しているので、コピー後に書き換えるのは**呼び出し側の import パスだけ**です。
-> `@management/feature-x` という名前はこのモノレポ内でのみ使われ、本アプリには持ち込まれません。
-
-### 補足: git subtree で履歴ごと移す場合
-コピーではなく履歴を残して移したいときは、本アプリ側で:
-```bash
-git subtree add --prefix=src/features/feature-a \
-  https://github.com/babaz-makar/management.git main --squash
-```
-（ただし単一アプリへは単純コピーの方が扱いやすいことが多いです）
+> `@management/{ツール名}` という名前はこのモノレポ内でのみ使われ、本アプリには持ち込まれません。
 
 ---
 
-## デプロイ（Vercel）
-
-このリポジトリ自体は `apps/web`（プレビュー）を Vercel に接続すれば、push ごとに 4機能をまとめて確認できます。
-
-- Vercel で新規プロジェクト作成 → このリポジトリを接続
-- **Root Directory** に `apps/web` を指定
-- `main` → 本番 / その他ブランチ・PR → Preview URL 自動生成
-
-> 本番運用は結合先の本アプリ側で行う想定なので、このリポジトリの Vercel 連携は
-> 「4機能のプレビュー環境」として使うのがおすすめです。
-
 ## Git ワークフロー
 
-- `main`: 常に `pnpm build` が通る状態を保つ
-- 機能開発: `feat/feature-a-xxx` のようにブランチを切って PR → merge
-- branch は「開発・レビューの単位」。機能を増やすときは branch ではなく `packages/` にフォルダを足す
+- `main`: 常に `pnpm build` が通る状態を保つ。**直接 push 禁止**（PR経由でmerge）
+- ツール開発: `feature/{ツール名}` ブランチで開発 → 完成したら PR → `main` に squash merge
+- 変更を書くたびに、Stop フックが自動で `feature/*` ブランチへ commit & push する

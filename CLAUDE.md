@@ -1,6 +1,6 @@
 # CLAUDE.md — management リポジトリ運用ルール
 
-このリポジトリは **4つの機能を並行開発し、本アプリ（単一 Next.js）へ共有パッケージ単位で結合する**ための機能インキュベーターです。
+このリポジトリは **複数のツールを個別に開発し、本アプリ（単一 Next.js）へ共有パッケージ単位で結合する**ための機能インキュベーターです。
 各 Claude Code セッションはこのルールに従ってください。
 
 ---
@@ -10,55 +10,66 @@
 | ブランチ | 役割 | 自動push |
 | --- | --- | --- |
 | `main` | 統合ブランチ。常に `pnpm build` が通る状態を保つ。**直接 push 禁止**（PR経由でmerge） | ❌ しない |
-| `feature-a` | `packages/feature-a` 専用の開発ブランチ | ✅ する |
-| `feature-b` | `packages/feature-b` 専用の開発ブランチ | ✅ する |
-| `feature-c` | `packages/feature-c` 専用の開発ブランチ | ✅ する |
-| `feature-d` | `packages/feature-d` 専用の開発ブランチ | ✅ する |
+| `feature/{ツール名}` | そのツール専用の開発ブランチ（例 `feature/photo-picker`） | ✅ する |
 
-> ⚠️ 「機能ごとに1ブランチ（mini branch）」です。1つのセッションは **1機能・1ブランチ**だけを担当します。
+> ⚠️ 「ツールごとに1ブランチ」です。1つのセッションは **1ツール・1ブランチ**だけを担当します。
 
 ---
 
 ## 各セッションの担当スコープ
 
-1. 自分の担当ブランチ（例 `feature-a`）を **必ずチェックアウトしてから**作業を始める
-2. 触ってよいのは **自分の機能フォルダのみ**
-   - `packages/feature-a/` （担当機能の実装）
-   - `apps/web/`（プレビュー確認のためだけ。他機能の表示を壊さない）
+1. 自分の担当ブランチ（例 `feature/{ツール名}`）を **必ずチェックアウトしてから**作業を始める
+2. 触ってよいのは **自分のツールフォルダのみ**
+   - `packages/{ツール名}/` （担当ツールの実装）
+   - `apps/web/`（プレビュー確認のためだけ。他ツールの表示を壊さない）
 3. **`main` には直接コミット・push しない**。統合はオーナーが PR で行う
-4. 他機能のフォルダ（`packages/feature-b` 等）は編集しない
+4. 他ツールのフォルダは編集しない
+
+---
+
+## 新しいツールの初期化手順
+
+1. 担当ブランチを作ってチェックアウト
+   ```bash
+   git fetch origin
+   git checkout -b feature/{ツール名} origin/main
+   ```
+2. お手本パッケージ `packages/_template` をコピーして自分のツール名にリネーム
+   ```bash
+   cp -r packages/_template packages/{ツール名}
+   ```
+3. `packages/{ツール名}/package.json` の `name` を `@management/{ツール名}` に変更
+4. `src/index.ts` / コンポーネント名を自分のツールに合わせてリネーム・実装
+5. ルートで `pnpm install` → 開発開始
 
 ---
 
 ## 自動 push の仕組み
 
 - Claude Code の **Stop フック**（`.claude/hooks/auto-push.sh`）が、応答の区切りごとに自動実行される
-- 挙動: 現在のブランチが `feature-*` のときだけ、変更を `chore(auto): <branch> WIP sync` としてコミットし、`origin/<branch>` に push する
+- 挙動: 現在のブランチが `feature/*`（または `feature-*`）のときだけ、変更を `chore(auto): <branch> WIP sync` としてコミットし、`origin/<branch>` に push する
 - `main` やその他のブランチでは **何もしない**（安全装置）
 - WIP コミットが増えるので、`main` へ統合する際は **squash merge** で履歴を1つにまとめる想定
 
 ---
 
-## 複数セッションの起動方法（衝突回避）
+## 複数ツールを並行開発するとき
 
-git のブランチはリポジトリ全体の状態なので、**1つの作業ディレクトリで4ブランチを同時に扱えません**。
-機能ごとに **git worktree** で作業ディレクトリを分けてください（推奨）。
+git のブランチはリポジトリ全体の状態なので、1つの作業フォルダで複数ブランチを同時には扱えません。
+基本は **ツール（担当者）ごとに別々の clone** を用意してください。
 
 ```bash
-# main のあるディレクトリで一度だけ実行
-git fetch origin
-git worktree add ../kanri-feature-a feature-a
-git worktree add ../kanri-feature-b feature-b
-git worktree add ../kanri-feature-c feature-c
-git worktree add ../kanri-feature-d feature-d
+# 例: このフォルダの隣に clone する
+git clone https://github.com/babaz-makar/management.git management-{ツール名}
+cd management-{ツール名}
+pnpm install
 ```
 
-各 worktree で `pnpm install` → Claude Code を起動し、それぞれが担当機能を開発します。
-（worktree の代わりに、リポジトリを4つ clone しても構いません）
+（1人で複数ツールを持つ場合は `git worktree` でフォルダを分けても構いません）
 
 ---
 
-## 機能パッケージの開発規約（本アプリへ結合しやすく保つ）
+## ツールパッケージの開発規約（本アプリへ結合しやすく保つ）
 
 1. **外部依存は react / react-dom のみ**に抑える。追加が必要なら `package.json` に明記
 2. パッケージ内の import は **相対パス**（`./`, `../`）で完結させる
@@ -67,5 +78,5 @@ git worktree add ../kanri-feature-d feature-d
 
 ## 本アプリへの結合（オーナー作業）
 
-`packages/feature-x/src/` を本アプリの `src/features/feature-x/` にコピーし、`import { FeatureX } from "@/features/feature-x"` で使う。
+`packages/{ツール名}/src/` を本アプリの `src/features/{ツール名}/` にコピーし、`import { XXX } from "@/features/{ツール名}"` で使う。
 詳細は [README.md](./README.md) を参照。

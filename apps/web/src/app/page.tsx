@@ -1,8 +1,3 @@
-import { FeatureA } from "@management/feature-a";
-import { FeatureB } from "@management/feature-b";
-import { FeatureC } from "@management/feature-c";
-import { FeatureD } from "@management/feature-d";
-
 export default function Home() {
   return (
     <main
@@ -15,15 +10,13 @@ export default function Home() {
     >
       <h1 style={{ marginBottom: ".25rem" }}>management</h1>
       <p style={{ color: "#666", marginTop: 0 }}>
-        4機能のプレビュー用ホスト。各機能は <code>packages/feature-*</code> に自己完結しており、
-        本アプリへはフォルダごとコピーして結合できます。
+        ツール開発用のプレビューホストです。各ツールは <code>packages/&#123;ツール名&#125;</code> に自己完結して作り、
+        本アプリへはフォルダごとコピーして結合します。
       </p>
-      <div style={{ display: "grid", gap: "1rem", marginTop: "2rem" }}>
-        <FeatureA />
-        <FeatureB />
-        <FeatureC />
-        <FeatureD />
-      </div>
+      <p style={{ color: "#666" }}>
+        自分のツールをここで確認するには、<code>src/app/page.tsx</code> でそのツールを import し、
+        <code>next.config.ts</code> の <code>transpilePackages</code> にパッケージ名を追加してください。
+      </p>
     </main>
   );
 }

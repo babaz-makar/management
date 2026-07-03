@@ -11,7 +11,7 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 
 branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
 case "$branch" in
-  feature-*) ;;                # 対象
+  feature/*|feature-*) ;;      # 対象: feature/{ツール名}（推奨）と feature-* の両方
   *) exit 0 ;;                 # main / その他は自動 push しない（安全装置）
 esac
 

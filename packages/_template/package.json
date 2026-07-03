@@ -1,5 +1,5 @@
 {
-  "name": "@management/feature-c",
+  "name": "@management/tool-template",
   "version": "0.0.0",
   "private": true,
   "main": "./src/index.ts",
