@@ -39,3 +39,41 @@ export type ScheduleState = {
 export function assignmentKey(staffId: string, dateKey: string): string {
   return `${staffId}:${dateKey}`;
 }
+
+// ---------------------------------------------------------------------------
+// Slack変更報告 → Googleカレンダー反映（DESIGN.md）の型
+// ---------------------------------------------------------------------------
+
+/** シフト1コマの日時 */
+export interface ShiftTime {
+  /** "2026-06-30" (年補完済みISO) */
+  date: string;
+  /** "16:00" */
+  startTime: string;
+  /** "22:00" */
+  endTime: string;
+}
+
+/** Slack報告1行分のシフト変更依頼 */
+export interface ShiftChange {
+  /** slackMessageTs + 行番号（冪等性キー） */
+  id: string;
+  /** 現テンプレはmodifyのみ。将来拡張 */
+  kind: "modify" | "add" | "cancel";
+  slackUserId: string;
+  before?: ShiftTime;
+  after?: ShiftTime;
+  reason?: string;
+  /** スレッド返信・重複排除に使用 */
+  sourceMessageTs: string;
+  channelId: string;
+}
+
+/** スタッフごとのGoogle OAuthトークン */
+export interface StaffToken {
+  /** OAuth同意時に取得（照合キー） */
+  googleEmail: string;
+  /** 暗号化して保存 */
+  refreshToken: string;
+  consentedAt: string;
+}
