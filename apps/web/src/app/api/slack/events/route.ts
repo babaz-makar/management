@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import {
   verifySlackRequest,
   runPipeline,
@@ -30,11 +31,9 @@ export async function POST(req: NextRequest) {
       console.warn("[shift-management] signature verification failed");
       return NextResponse.json({ error: "invalid signature" }, { status: 401 });
     }
-    console.log("[shift-management] signature verified OK");
   }
 
   const body = JSON.parse(rawBody);
-  console.log("[shift-management] body.type:", body.type, "event.type:", body.event?.type);
 
   if (body.type === "url_verification") {
     return NextResponse.json({ challenge: body.challenge });
@@ -66,11 +65,13 @@ export async function POST(req: NextRequest) {
     arr.slice(0, 500).forEach((ts) => processed.delete(ts));
   }
 
-  console.log("[shift-management] received message from user:", event.user, "text:", event.text?.substring(0, 50));
-
-  processEvent(event).catch((err) =>
-    console.error("[shift-management] pipeline error:", err),
-  );
+  after(async () => {
+    try {
+      await processEvent(event);
+    } catch (err) {
+      console.error("[shift-management] pipeline error:", err);
+    }
+  });
 
   return NextResponse.json({ ok: true });
 }
@@ -84,11 +85,8 @@ async function processEvent(event: {
   const botToken = process.env.SLACK_BOT_TOKEN;
   const tokenStore = getTokenStore();
 
-  console.log("[shift-management] looking up token for user:", event.user);
   const refreshToken = await tokenStore.get(event.user);
-  console.log("[shift-management] token found:", !!refreshToken);
   if (!refreshToken) {
-    console.log("[shift-management] no token, sending register link. botToken exists:", !!botToken, "APP_URL:", APP_URL);
     if (botToken) {
       const registerUrl = `${APP_URL}/api/auth/google?slack_user_id=${event.user}`;
       await fetch("https://slack.com/api/chat.postMessage", {
