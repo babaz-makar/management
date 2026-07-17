@@ -14,5 +14,8 @@
   },
   "devDependencies": {
     "turbo": "^2.5.0"
+  },
+  "dependencies": {
+    "googleapis": "^173.0.0"
   }
 }

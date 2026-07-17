@@ -16,6 +16,9 @@ build/
 .env.local
 .env*.local
 
+# token store (contains OAuth refresh tokens)
+data/tokens.json
+
 # logs
 *.log
 npm-debug.log*

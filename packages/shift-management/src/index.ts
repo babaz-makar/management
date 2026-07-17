@@ -21,3 +21,24 @@ export { parseShiftReport } from "./parsers/slack-report";
 export type { SlackReportInput } from "./parsers/slack-report";
 export { completeDate } from "./logic/date-complete";
 export { normalizeText } from "./logic/normalize";
+
+// カレンダーupsert計画（DESIGN.md フェーズ2の純関数部分）
+export { planCalendarUpsert } from "./logic/calendar-plan";
+export type {
+  CalendarPlan,
+  ExistingEvent,
+  NewEventSpec,
+} from "./logic/calendar-plan";
+
+// サーバー側（Google Calendar API / Slack検証 / パイプライン）
+export {
+  createOAuth2Client,
+  getAuthUrl,
+  listEventsForDate,
+  executePlan,
+  verifySlackRequest,
+  runPipeline,
+  formatResultMessage,
+  JsonFileTokenStore,
+} from "./server";
+export type { PipelineResult, TokenStore } from "./server";

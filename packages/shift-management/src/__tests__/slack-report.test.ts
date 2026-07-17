@@ -110,6 +110,75 @@ describe("parseShiftReport: 複数行・境界", () => {
   });
 });
 
+describe("parseShiftReport: キャンセル・追加", () => {
+  it("「→なし」はcancelとしてパースする", () => {
+    const text = `【シフト変更依頼】
+7/30 11:00-18:00→なし
+
+【変更理由】
+体調不良のため`;
+    const changes = parseShiftReport({ ...BASE_INPUT, text });
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({
+      kind: "cancel",
+      before: { date: "2026-07-30", startTime: "11:00", endTime: "18:00" },
+      reason: "体調不良のため",
+    });
+    expect(changes[0].after).toBeUndefined();
+  });
+
+  it("「なし→時間」はaddとしてパースする", () => {
+    const text = `【シフト変更依頼】
+7/30 なし→11:00-18:00`;
+    const changes = parseShiftReport({ ...BASE_INPUT, text });
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({
+      kind: "add",
+      after: { date: "2026-07-30", startTime: "11:00", endTime: "18:00" },
+    });
+    expect(changes[0].before).toBeUndefined();
+  });
+
+  it("「→休み」「→ナシ」もcancelとして認識する", () => {
+    for (const word of ["休み", "ナシ", "お休み"]) {
+      const text = `【シフト変更依頼】\n7/30 11:00-18:00→${word}`;
+      const changes = parseShiftReport({ ...BASE_INPUT, text });
+      expect(changes, word).toHaveLength(1);
+      expect(changes[0].kind).toBe("cancel");
+    }
+  });
+
+  it("modify・cancel・addが混在するメッセージ", () => {
+    const text = `【シフト変更依頼】
+7/28 9:00-17:00→10:00-18:00
+7/29 11:00-18:00→なし
+7/30 なし→9:00-17:00`;
+    const changes = parseShiftReport({ ...BASE_INPUT, text });
+    expect(changes).toHaveLength(3);
+    expect(changes.map((c) => c.kind)).toEqual(["modify", "cancel", "add"]);
+  });
+
+  it("実際のフォーマット（全角スペース・@メンション付き）", () => {
+    const text = `@unitリーダー
+お疲れ様です
+シフト変更をお願いいたします
+
+【シフト変更依頼】
+7/30　11:00-18:00→なし
+
+【変更理由】
+30　体調不良`;
+    const changes = parseShiftReport({ ...BASE_INPUT, text });
+    expect(changes).toHaveLength(1);
+    expect(changes[0].kind).toBe("cancel");
+    expect(changes[0].before).toEqual({
+      date: "2026-07-30",
+      startTime: "11:00",
+      endTime: "18:00",
+    });
+  });
+});
+
 describe("parseShiftReport: 年補完", () => {
   it("12月の報告で「1/5」は翌年と判定する", () => {
     const changes = parseShiftReport({

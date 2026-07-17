@@ -9,5 +9,6 @@ export function normalizeText(text: string): string {
     )
     .replace(/：/g, ":")
     .replace(/／/g, "/")
-    .replace(/　/g, " ");
+    .replace(/　/g, " ")
+    .replace(/～/g, "~");
 }
