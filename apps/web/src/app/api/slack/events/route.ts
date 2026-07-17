@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { after } from "next/server";
 import {
   verifySlackRequest,
   runPipeline,
@@ -65,13 +64,11 @@ export async function POST(req: NextRequest) {
     arr.slice(0, 500).forEach((ts) => processed.delete(ts));
   }
 
-  after(async () => {
-    try {
-      await processEvent(event);
-    } catch (err) {
-      console.error("[shift-management] pipeline error:", err);
-    }
-  });
+  try {
+    await processEvent(event);
+  } catch (err) {
+    console.error("[shift-management] pipeline error:", err);
+  }
 
   return NextResponse.json({ ok: true });
 }
