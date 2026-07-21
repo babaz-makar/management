@@ -55,22 +55,20 @@ export async function listEventsForDate(
 
   return (res.data.items ?? [])
     .filter((e) => e.start?.dateTime && e.end?.dateTime)
-    .map((e) => {
-      const start = new Date(e.start!.dateTime!);
-      const end = new Date(e.end!.dateTime!);
-      return {
-        id: e.id!,
-        shiftId: e.extendedProperties?.private?.shiftId,
-        date,
-        startTime: fmt(start),
-        endTime: fmt(end),
-      };
-    });
+    .map((e) => ({
+      id: e.id!,
+      shiftId: e.extendedProperties?.private?.shiftId,
+      date,
+      startTime: fmtISO(e.start!.dateTime!),
+      endTime: fmtISO(e.end!.dateTime!),
+    }));
 }
 
-/** Date → "HH:MM" */
-function fmt(d: Date): string {
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+/** ISO 8601 dateTime → "HH:MM"（タイムゾーン変換せずJST部分を直接抽出） */
+function fmtISO(iso: string): string {
+  const d = new Date(iso);
+  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  return `${String(jst.getUTCHours()).padStart(2, "0")}:${String(jst.getUTCMinutes()).padStart(2, "0")}`;
 }
 
 /**
