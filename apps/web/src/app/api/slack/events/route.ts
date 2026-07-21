@@ -66,6 +66,8 @@ export async function POST(req: NextRequest) {
     arr.slice(0, 500).forEach((ts) => processed.delete(ts));
   }
 
+  console.log("[shift-management] raw text:", JSON.stringify(event.text));
+
   try {
     await processEvent(event);
   } catch (err) {
@@ -104,6 +106,15 @@ async function processEvent(event: {
     }
     return;
   }
+
+  console.log("[shift-management] parsed changes count:",
+    (await import("@management/shift-management")).parseShiftReport({
+      text: event.text,
+      slackUserId: event.user,
+      channelId: event.channel,
+      messageTs: event.ts,
+    }).map(c => ({ kind: c.kind, before: c.before, after: c.after }))
+  );
 
   const results = await runPipeline(
     {
