@@ -107,14 +107,18 @@ async function processEvent(event: {
     return;
   }
 
-  console.log("[shift-management] parsed changes count:",
-    (await import("@management/shift-management")).parseShiftReport({
-      text: event.text,
-      slackUserId: event.user,
-      channelId: event.channel,
-      messageTs: event.ts,
-    }).map(c => ({ kind: c.kind, before: c.before, after: c.after }))
-  );
+  // DEBUG: Slack返信で生テキストとパース結果を確認（本番安定後に削除）
+  const { parseShiftReport: debugParse } = await import("@management/shift-management");
+  const debugChanges = debugParse({
+    text: event.text,
+    slackUserId: event.user,
+    channelId: event.channel,
+    messageTs: event.ts,
+  });
+  const debugInfo = [
+    `[DEBUG] raw: ${JSON.stringify(event.text)}`,
+    `[DEBUG] changes(${debugChanges.length}): ${debugChanges.map(c => c.kind).join(", ")}`,
+  ].join("\n");
 
   const results = await runPipeline(
     {
@@ -131,8 +135,8 @@ async function processEvent(event: {
 
   const hasWarnings = results.some((r) => r.plan.warnings.length > 0);
   const replyText = hasWarnings
-    ? formatResultMessage(results)
-    : "変更完了";
+    ? formatResultMessage(results) + "\n\n" + debugInfo
+    : "変更完了\n\n" + debugInfo;
 
   if (botToken) {
     await fetch("https://slack.com/api/chat.postMessage", {
