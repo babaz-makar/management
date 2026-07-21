@@ -66,8 +66,6 @@ export async function POST(req: NextRequest) {
     arr.slice(0, 500).forEach((ts) => processed.delete(ts));
   }
 
-  console.log("[shift-management] raw text:", JSON.stringify(event.text));
-
   try {
     await processEvent(event);
   } catch (err) {
@@ -107,19 +105,6 @@ async function processEvent(event: {
     return;
   }
 
-  // DEBUG: Slack返信で生テキストとパース結果を確認（本番安定後に削除）
-  const { parseShiftReport: debugParse } = await import("@management/shift-management");
-  const debugChanges = debugParse({
-    text: event.text,
-    slackUserId: event.user,
-    channelId: event.channel,
-    messageTs: event.ts,
-  });
-  const debugInfo = [
-    `[DEBUG] raw: ${JSON.stringify(event.text)}`,
-    `[DEBUG] changes(${debugChanges.length}): ${debugChanges.map(c => c.kind).join(", ")}`,
-  ].join("\n");
-
   const results = await runPipeline(
     {
       text: event.text,
@@ -135,8 +120,8 @@ async function processEvent(event: {
 
   const hasWarnings = results.some((r) => r.plan.warnings.length > 0);
   const replyText = hasWarnings
-    ? formatResultMessage(results) + "\n\n" + debugInfo
-    : "変更完了\n\n" + debugInfo;
+    ? formatResultMessage(results)
+    : "変更完了";
 
   if (botToken) {
     await fetch("https://slack.com/api/chat.postMessage", {
