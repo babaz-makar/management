@@ -26,6 +26,21 @@ const NASHI = /(?:なし|ナシ|無し|休み|お休み)/;
 const DATE_PART = /(\d{1,2})[/月](\d{1,2})日?/;
 
 /**
+ * split-modify (中抜け): `7/22 12:00-18:00→11:30-14:30 18:00-21:00`
+ * 矢印の右側に2つの時間帯がある場合、2つの別イベントとして登録する
+ */
+const SPLIT_MODIFY_LINE = new RegExp(
+  DATE_PART.source +
+    String.raw`\s*` +
+    TIME_RANGE.source +
+    String.raw`\s*(?:→|->|⇒)\s*` +
+    TIME_RANGE.source +
+    String.raw`\s+` +
+    TIME_RANGE.source,
+  "g",
+);
+
+/**
  * modify: `7/30 11:00-18:00→9:00-17:00`
  * cancel: `7/30 11:00-18:00→なし`
  * add:    `7/30 なし→11:00-18:00`
@@ -91,7 +106,34 @@ export function parseShiftReport(input: SlackReportInput): ShiftChange[] {
 
   const changes: ShiftChange[] = [];
 
-  for (const m of target.matchAll(MODIFY_LINE)) {
+  // 中抜け（split-modify）を先にマッチし、該当部分を除去してから通常パターンを走査
+  let remaining = target;
+  for (const m of target.matchAll(SPLIT_MODIFY_LINE)) {
+    const [matched, month, day, beforeStart, beforeEnd, after1Start, after1End, after2Start, after2End] = m;
+    const date = completeDate(Number(month), Number(day), baseDate);
+    changes.push({
+      id: `${input.messageTs}:${changes.length}`,
+      kind: "modify",
+      slackUserId: input.slackUserId,
+      before: { date, startTime: beforeStart, endTime: beforeEnd },
+      after: { date, startTime: after1Start, endTime: after1End },
+      reason,
+      sourceMessageTs: input.messageTs,
+      channelId: input.channelId,
+    });
+    changes.push({
+      id: `${input.messageTs}:${changes.length}`,
+      kind: "add",
+      slackUserId: input.slackUserId,
+      after: { date, startTime: after2Start, endTime: after2End },
+      reason,
+      sourceMessageTs: input.messageTs,
+      channelId: input.channelId,
+    });
+    remaining = remaining.replace(matched, "");
+  }
+
+  for (const m of remaining.matchAll(MODIFY_LINE)) {
     const [, month, day, beforeStart, beforeEnd, afterStart, afterEnd] = m;
     const date = completeDate(Number(month), Number(day), baseDate);
     changes.push({
@@ -106,7 +148,7 @@ export function parseShiftReport(input: SlackReportInput): ShiftChange[] {
     });
   }
 
-  for (const m of target.matchAll(CANCEL_LINE)) {
+  for (const m of remaining.matchAll(CANCEL_LINE)) {
     const [, month, day, beforeStart, beforeEnd] = m;
     const date = completeDate(Number(month), Number(day), baseDate);
     changes.push({
@@ -120,7 +162,7 @@ export function parseShiftReport(input: SlackReportInput): ShiftChange[] {
     });
   }
 
-  for (const m of target.matchAll(ADD_LINE)) {
+  for (const m of remaining.matchAll(ADD_LINE)) {
     const [, month, day, afterStart, afterEnd] = m;
     const date = completeDate(Number(month), Number(day), baseDate);
     changes.push({

@@ -10,8 +10,10 @@ const SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET ?? "";
 const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID ?? "primary";
 const WATCH_CHANNEL = process.env.SLACK_WATCH_CHANNEL_ID ?? "";
 const APP_URL = process.env.APP_URL ?? "http://localhost:3000";
+const ADMIN_EMAIL = process.env.SLACK_ADMIN_EMAIL ?? "";
 
 const processed = new Set<string>();
+let cachedAdminSlackId: string | null = null;
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
@@ -68,6 +70,7 @@ export async function POST(req: NextRequest) {
     await processEvent(event);
   } catch (err) {
     console.error("[shift-management] pipeline error:", err);
+    await notifyError(event, err);
   }
 
   return NextResponse.json({ ok: true });
@@ -134,4 +137,50 @@ async function processEvent(event: {
       }),
     });
   }
+}
+
+async function lookupAdminSlackId(): Promise<string | null> {
+  if (cachedAdminSlackId) return cachedAdminSlackId;
+  const botToken = process.env.SLACK_BOT_TOKEN;
+  if (!botToken || !ADMIN_EMAIL) return null;
+
+  try {
+    const res = await fetch(
+      `https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(ADMIN_EMAIL)}`,
+      { headers: { Authorization: `Bearer ${botToken}` } },
+    );
+    const data = await res.json();
+    if (data.ok && data.user?.id) {
+      cachedAdminSlackId = data.user.id;
+      return cachedAdminSlackId;
+    }
+  } catch {
+    // lookup 失敗時はメンションなしで通知
+  }
+  return null;
+}
+
+async function notifyError(
+  event: { channel: string; ts: string },
+  err: unknown,
+) {
+  const botToken = process.env.SLACK_BOT_TOKEN;
+  if (!botToken) return;
+
+  const adminId = await lookupAdminSlackId();
+  const mention = adminId ? `<@${adminId}> ` : "";
+  const message = err instanceof Error ? err.message : String(err);
+
+  await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      channel: event.channel,
+      thread_ts: event.ts,
+      text: `${mention}:warning: シフト反映でエラーが発生しました:\n${message}`,
+    }),
+  });
 }

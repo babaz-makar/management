@@ -179,6 +179,62 @@ describe("parseShiftReport: キャンセル・追加", () => {
   });
 });
 
+describe("parseShiftReport: 中抜け（split-modify）", () => {
+  it("矢印の右側に2つの時間帯があれば modify + add の2件を返す", () => {
+    const text = `【シフト変更依頼】
+7/22 12:00-18:00→11:30-14:30 18:00-21:00`;
+    const changes = parseShiftReport({ ...BASE_INPUT, text });
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toMatchObject({
+      kind: "modify",
+      before: { date: "2026-07-22", startTime: "12:00", endTime: "18:00" },
+      after: { date: "2026-07-22", startTime: "11:30", endTime: "14:30" },
+    });
+    expect(changes[1]).toMatchObject({
+      kind: "add",
+      after: { date: "2026-07-22", startTime: "18:00", endTime: "21:00" },
+    });
+    expect(changes[1].before).toBeUndefined();
+  });
+
+  it("中抜けと通常変更が混在するメッセージ", () => {
+    const text = `【シフト変更依頼】
+7/22 12:00-18:00→11:30-14:30 18:00-21:00
+7/23 9:00-17:00→10:00-18:00`;
+    const changes = parseShiftReport({ ...BASE_INPUT, text });
+    expect(changes).toHaveLength(3);
+    expect(changes[0].kind).toBe("modify"); // split 1st
+    expect(changes[1].kind).toBe("add");    // split 2nd
+    expect(changes[2].kind).toBe("modify"); // normal
+    expect(changes[2].before).toEqual({
+      date: "2026-07-23",
+      startTime: "9:00",
+      endTime: "17:00",
+    });
+  });
+
+  it("全角チルダ・月日形式でも中抜けを認識する", () => {
+    const text = `【シフト変更依頼】
+7月22日 12:00〜18:00→11:30〜14:30 18:00〜21:00`;
+    const changes = parseShiftReport({ ...BASE_INPUT, text });
+    expect(changes).toHaveLength(2);
+    expect(changes[0].kind).toBe("modify");
+    expect(changes[1].kind).toBe("add");
+  });
+
+  it("中抜けの各changeにreasonが付く", () => {
+    const text = `【シフト変更依頼】
+7/22 12:00-18:00→11:30-14:30 18:00-21:00
+
+【変更理由】
+通院のため`;
+    const changes = parseShiftReport({ ...BASE_INPUT, text });
+    expect(changes).toHaveLength(2);
+    expect(changes[0].reason).toBe("通院のため");
+    expect(changes[1].reason).toBe("通院のため");
+  });
+});
+
 describe("parseShiftReport: 年補完", () => {
   it("12月の報告で「1/5」は翌年と判定する", () => {
     const changes = parseShiftReport({
