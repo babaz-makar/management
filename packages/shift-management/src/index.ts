@@ -9,6 +9,7 @@ export type {
   Assignments,
   ScheduleState,
   ShiftChange,
+  ShiftEntry,
   ShiftTime,
   ShiftType,
   StaffMember,
@@ -20,7 +21,12 @@ export { assignmentKey } from "./types";
 export { parseShiftReport } from "./parsers/slack-report";
 export type { SlackReportInput } from "./parsers/slack-report";
 export { completeDate } from "./logic/date-complete";
-export { normalizeText } from "./logic/normalize";
+export { normalizeText, normalizeTime } from "./logic/normalize";
+
+// ジョブカン確定シフト取込（取込フェーズ1）
+export { parseJobcanSheet } from "./parsers/jobcan-sheet";
+export type { JobcanSheetInput } from "./parsers/jobcan-sheet";
+export { completeJobcanDate } from "./logic/jobcan-date";
 
 // カレンダーupsert計画（DESIGN.md フェーズ2の純関数部分）
 export { planCalendarUpsert } from "./logic/calendar-plan";

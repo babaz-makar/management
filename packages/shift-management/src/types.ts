@@ -69,6 +69,22 @@ export interface ShiftChange {
   channelId: string;
 }
 
+/** ジョブカン確定シフト1コマ(取込フェーズ1の出力単位) */
+export interface ShiftEntry {
+  /** `${staffCode}:${date}` 冪等キー */
+  jobcanShiftId: string;
+  /** 例 "A0187" mapping唯一の安定キー */
+  staffCode: string;
+  /** 表示・照合補助 */
+  staffName: string;
+  /** 所属文字列(分解せず1文字列で保持) */
+  affiliation?: string;
+  /** "2026-08" */
+  sourceMonth: string;
+  /** 既存 ShiftTime を再利用(date は年補完済みISO) */
+  shift: ShiftTime;
+}
+
 /** スタッフごとのGoogle OAuthトークン */
 export interface StaffToken {
   /** OAuth同意時に取得（照合キー） */
