@@ -14,14 +14,14 @@ export function normalizeText(text: string): string {
 }
 
 /**
- * 時刻文字列を "HH:MM"(時のみゼロ埋め)へ正規化する純関数。
+ * 時刻文字列を "HH:MM"(時・分ともゼロ埋め)へ正規化する純関数。
  * 全角除去済み(normalizeText 済み)を前提とし、":" 区切り2要素のときだけ整形する。
- * 例: "9:00"->"09:00" / "10:00"->"10:00" / "0:00"->"00:00"。
+ * 例: "9:00"->"09:00" / "10:00"->"10:00" / "0:00"->"00:00" / "9:5"->"09:05"。
  * 2要素でない入力(空文字・"休"など)はそのまま返す。
  */
 export function normalizeTime(s: string): string {
   const parts = s.split(":");
   if (parts.length !== 2) return s;
   const [hour, minute] = parts;
-  return `${hour.padStart(2, "0")}:${minute}`;
+  return `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
 }

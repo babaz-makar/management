@@ -15,8 +15,12 @@ describe("normalizeTime", () => {
     expect(normalizeTime("0:00")).toBe("00:00");
   });
 
-  it("分はゼロ埋めせずそのまま保つ", () => {
+  it("2桁の分はそのまま保つ", () => {
     expect(normalizeTime("22:05")).toBe("22:05");
+  });
+
+  it("1桁の分もゼロ埋めして左右対称に整形する", () => {
+    expect(normalizeTime("9:5")).toBe("09:05");
   });
 
   it(":区切り2要素でない入力はそのまま返す", () => {

@@ -95,6 +95,15 @@ describe("parseJobcanSheet: 異常時刻の扱い(社長確定v1)", () => {
     expect(entries).toHaveLength(0);
   });
 
+  it("時刻列が非HH:MM文字列(休/遅刻等)の行は除外する", () => {
+    const rows = [
+      ["8/6(水)", "", "", "", "", "休", "休"],
+      ["8/7(木)", "", "", "", "", "9:00", "遅刻"],
+    ];
+    const entries = parse(rows);
+    expect(entries).toHaveLength(0);
+  });
+
   it("終了<開始の深夜跨ぎは同日verbatimで記録し日跨ぎ変換しない", () => {
     const rows = [["8/7(木)", "", "", "", "", "22:00", "5:00"]];
     const entries = parse(rows);
@@ -154,6 +163,28 @@ describe("parseJobcanSheet: 行フィルタ", () => {
     const entries = parse(rows);
     expect(entries).toHaveLength(1);
   });
+
+  it("月が範囲外(13以上)の行は日付として扱わずスキップする", () => {
+    const rows = [
+      ["8/1(土)", "", "", "", "", "9:00", "18:00"],
+      ["18/45", "", "", "", "", "9:00", "18:00"],
+    ];
+    const entries = parse(rows);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].shift.date).toBe("2026-08-01");
+  });
+
+  it("日が範囲外(32以上)の行はスキップする", () => {
+    const rows = [["8/32", "", "", "", "", "9:00", "18:00"]];
+    const entries = parse(rows);
+    expect(entries).toHaveLength(0);
+  });
+
+  it("月0・日0の行はスキップする", () => {
+    const rows = [["0/0", "", "", "", "", "9:00", "18:00"]];
+    const entries = parse(rows);
+    expect(entries).toHaveLength(0);
+  });
 });
 
 describe("parseJobcanSheet: 月またぎ・前年", () => {
@@ -200,6 +231,29 @@ describe("parseJobcanSheet: identity 抽出", () => {
     );
     const entries = parseJobcanSheet({ rows });
     expect(entries[0].staffCode).toBe("Z9999");
+  });
+
+  it("フォールバック時、部署/等級コード様セル(英字+数字1-2桁)を本人コードと誤認しない", () => {
+    // 規定位置(col2)にコードは無く、部署コード "A1" と本人コード "Z9999" が混在
+    const identity = ["試 太郎", "A1", "", "", "TEST DIV->Test TM->テスト", "Z9999", ""];
+    const rows = makeRows(
+      [["8/1(土)", "", "", "", "", "9:00", "18:00"]],
+      MONTH_HEADER,
+      identity,
+    );
+    const entries = parseJobcanSheet({ rows });
+    expect(entries[0].staffCode).toBe("Z9999");
+  });
+
+  it("フォールバック候補が複数(異なる本人コード様)なら曖昧として throw", () => {
+    // 規定位置に無く、本人コード様セルが2つ(異なる値)存在 → 黙って先頭を採らない
+    const identity = ["試 太郎", "", "", "", "Y8888", "Z9999", ""];
+    const rows = makeRows(
+      [["8/1(土)", "", "", "", "", "9:00", "18:00"]],
+      MONTH_HEADER,
+      identity,
+    );
+    expect(() => parseJobcanSheet({ rows })).toThrow();
   });
 
   it("氏名が空なら sheetName で補完する", () => {

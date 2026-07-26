@@ -28,7 +28,12 @@ const IDENTITY_SCAN_ROWS = 12;
 const DATA_START_FALLBACK = 9;
 
 const MONTH_HEADER_RE = /(\d{4})年\s*(\d{1,2})月/;
-const STAFF_CODE_RE = /^[A-Za-z]\d+$/;
+/**
+ * スタッフコード書式。英字1文字+数字4桁以上。
+ * 部署/チーム/等級コード(例 "A1","X99" のように数字1-2桁)を誤同定しないため、
+ * 数字部を4桁以上に厳格化している(実データは英字1+数字4)。
+ */
+const STAFF_CODE_RE = /^[A-Za-z]\d{4,}$/;
 const DATE_CELL_RE = /^\s*(\d{1,2})\/(\d{1,2})/;
 const TIME_RE = /^\d{2}:\d{2}$/;
 
@@ -46,15 +51,39 @@ function resolveTargetMonth(
   throw new Error("対象年月を特定できません(header に YYYY年M月 が無く targetMonth も未指定)");
 }
 
-/** 先頭N行から staffCode 様のセルを探す */
-function findStaffCode(rows: string[][]): string | undefined {
+/**
+ * 先頭N行から staffCode 様セルの候補(重複除去)を集める。
+ * 誤同定を避けるため、黙って先頭を採らず候補集合を呼び出し側へ返す。
+ */
+function collectStaffCodeCandidates(rows: string[][]): string[] {
+  const found = new Set<string>();
   for (const row of rows.slice(0, IDENTITY_SCAN_ROWS)) {
     for (const cell of row) {
       const value = (cell ?? "").trim();
-      if (STAFF_CODE_RE.test(value)) return value;
+      if (STAFF_CODE_RE.test(value)) found.add(value);
     }
   }
-  return undefined;
+  return [...found];
+}
+
+/**
+ * staffCode を決定する。規定位置(row3 col2)を最優先。
+ * 無い場合は先頭N行を走査し、候補が一意なら採用。
+ * 候補ゼロ→throw(見つからない)、複数(異なる値)→throw(曖昧: 誤同定回避)。
+ */
+function resolveStaffCode(rows: string[][], codeCell: string): string {
+  if (STAFF_CODE_RE.test(codeCell)) return codeCell;
+
+  const candidates = collectStaffCodeCandidates(rows);
+  if (candidates.length === 0) {
+    throw new Error("staffCode を特定できません(コード様セルが見つからない)");
+  }
+  if (candidates.length > 1) {
+    throw new Error(
+      `staffCode が曖昧です(候補 ${candidates.length}件: ${candidates.join(", ")})`,
+    );
+  }
+  return candidates[0];
 }
 
 /** スタッフ同定情報を抽出する。staffCode が取れなければ throw */
@@ -64,13 +93,7 @@ function resolveIdentity(input: JobcanSheetInput): Identity {
   const codeCell = (idRow[2] ?? "").trim();
   const affiliationCell = (idRow[4] ?? "").trim();
 
-  const staffCode = STAFF_CODE_RE.test(codeCell)
-    ? codeCell
-    : findStaffCode(input.rows);
-  if (!staffCode) {
-    throw new Error("staffCode を特定できません(コード様セルが見つからない)");
-  }
-
+  const staffCode = resolveStaffCode(input.rows, codeCell);
   const staffName = nameCell || (input.sheetName ?? "").trim();
   const affiliation = affiliationCell || undefined;
   return { staffCode, staffName, affiliation };
@@ -101,16 +124,17 @@ function rowToEntry(
   const match = dateCell.match(DATE_CELL_RE);
   if (!match) return null;
 
+  // 月1-12・日1-31の範囲外は日付行として扱わない(不正ISO "2026-18-45" の黙生成を防ぐ)。
+  // 取込は多数行のバッチなので、1セルの異常で全体を落とさず該当行スキップで頑健に弾く。
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
   const startTime = normalizeTime(normalizeText(row[COL.shiftStart] ?? ""));
   const endTime = normalizeTime(normalizeText(row[COL.shiftEnd] ?? ""));
   if (!isWorkingTime(startTime) || !isWorkingTime(endTime)) return null;
 
-  const date = completeJobcanDate(
-    Number(match[1]),
-    Number(match[2]),
-    target.year,
-    target.month,
-  );
+  const date = completeJobcanDate(month, day, target.year, target.month);
   const sourceMonth = `${target.year}-${String(target.month).padStart(2, "0")}`;
   return {
     jobcanShiftId: `${identity.staffCode}:${date}`,
