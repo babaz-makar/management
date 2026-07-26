@@ -116,6 +116,71 @@ describe("parseJobcanSheet: 異常時刻の扱い(社長確定v1)", () => {
   });
 });
 
+describe("parseJobcanSheet: 時刻の範囲検証(①)", () => {
+  it.each([
+    ["時が範囲外(24:00)", "24:00", "18:00"],
+    ["時が範囲外(25:70)", "25:70", "18:00"],
+    ["分が範囲外(23:60)", "9:00", "23:60"],
+    ["分が範囲外(9:99→09:99)", "9:99", "18:00"],
+  ])("%s の行は ShiftEntry を生まない", (_label, start, end) => {
+    const rows = [["8/10(日)", "", "", "", "", start, end]];
+    const entries = parse(rows);
+    expect(entries).toHaveLength(0);
+  });
+
+  it("境界値 23:59 / 00:01 は採用する", () => {
+    const rows = [["8/10(日)", "", "", "", "", "0:01", "23:59"]];
+    const entries = parse(rows);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].shift).toEqual({
+      date: "2026-08-10",
+      startTime: "00:01",
+      endTime: "23:59",
+    });
+  });
+});
+
+describe("parseJobcanSheet: 実在日検証(②)", () => {
+  it("存在しない日(2/30)はスキップし 3/2 へ繰り上げない", () => {
+    const rows = [["2/30", "", "", "", "", "9:00", "18:00"]];
+    const entries = parseJobcanSheet({
+      rows: makeRows(rows, "2026年2月度 シフト表"),
+    });
+    expect(entries).toHaveLength(0);
+  });
+
+  it("存在しない日(4/31)はスキップする", () => {
+    const rows = [["4/31", "", "", "", "", "9:00", "18:00"]];
+    const entries = parseJobcanSheet({
+      rows: makeRows(rows, "2026年4月度 シフト表"),
+    });
+    expect(entries).toHaveLength(0);
+  });
+
+  it("非うるう年の 2/29(2026) はスキップする", () => {
+    const rows = [["2/29", "", "", "", "", "9:00", "18:00"]];
+    const entries = parseJobcanSheet({
+      rows: makeRows(rows, "2026年2月度 シフト表"),
+    });
+    expect(entries).toHaveLength(0);
+  });
+
+  it("うるう年の 2/29(2028) は採用する", () => {
+    const rows = [["2/29", "", "", "", "", "9:00", "18:00"]];
+    const entries = parseJobcanSheet({
+      rows: makeRows(rows, "2028年2月度 シフト表"),
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].shift.date).toBe("2028-02-29");
+  });
+
+  it("通常の実在日(8/31)は不変で採用する", () => {
+    const rows = [["8/31", "", "", "", "", "9:00", "18:00"]];
+    const entries = parse(rows);
+    expect(entries[0].shift.date).toBe("2026-08-31");
+  });
+});
+
 describe("parseJobcanSheet: 列位置と表記揺れ", () => {
   it("出勤/退勤列(5,6)以外の遅刻等の時刻は無視する", () => {
     // 列7以降に実打刻(遅刻)が入っていても採用時刻は列5/6のみ
@@ -185,6 +250,16 @@ describe("parseJobcanSheet: 行フィルタ", () => {
     const entries = parse(rows);
     expect(entries).toHaveLength(0);
   });
+
+  it("桁こぼれ(8/123)は日付行と見なさずスキップする(⑤)", () => {
+    const rows = [
+      ["8/12(水)", "", "", "", "", "9:00", "18:00"],
+      ["8/123", "", "", "", "", "9:00", "18:00"],
+    ];
+    const entries = parse(rows);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].shift.date).toBe("2026-08-12");
+  });
 });
 
 describe("parseJobcanSheet: 月またぎ・前年", () => {
@@ -221,33 +296,9 @@ describe("parseJobcanSheet: identity 抽出", () => {
     expect(entries[0].jobcanShiftId).toBe("Z9999:2026-08-01");
   });
 
-  it("4行目のコードが規定位置に無ければ先頭12行から探す", () => {
-    // 規定の index3 col2 にはコードが無く、別セルにコード様の値がある
+  it("規定位置(col2)にコードが無ければ、他行に本人コード様セルがあっても採用せず throw(別人ひも付け防止)", () => {
+    // 規定の index3 col2 は空。承認者等の他人コード "Z9999" が別セルに1つだけ在っても拾わない
     const identity = ["試 太郎", "", "", "", "TEST DIV->Test TM->テスト", "Z9999", ""];
-    const rows = makeRows(
-      [["8/1(土)", "", "", "", "", "9:00", "18:00"]],
-      MONTH_HEADER,
-      identity,
-    );
-    const entries = parseJobcanSheet({ rows });
-    expect(entries[0].staffCode).toBe("Z9999");
-  });
-
-  it("フォールバック時、部署/等級コード様セル(英字+数字1-2桁)を本人コードと誤認しない", () => {
-    // 規定位置(col2)にコードは無く、部署コード "A1" と本人コード "Z9999" が混在
-    const identity = ["試 太郎", "A1", "", "", "TEST DIV->Test TM->テスト", "Z9999", ""];
-    const rows = makeRows(
-      [["8/1(土)", "", "", "", "", "9:00", "18:00"]],
-      MONTH_HEADER,
-      identity,
-    );
-    const entries = parseJobcanSheet({ rows });
-    expect(entries[0].staffCode).toBe("Z9999");
-  });
-
-  it("フォールバック候補が複数(異なる本人コード様)なら曖昧として throw", () => {
-    // 規定位置に無く、本人コード様セルが2つ(異なる値)存在 → 黙って先頭を採らない
-    const identity = ["試 太郎", "", "", "", "Y8888", "Z9999", ""];
     const rows = makeRows(
       [["8/1(土)", "", "", "", "", "9:00", "18:00"]],
       MONTH_HEADER,
@@ -256,7 +307,18 @@ describe("parseJobcanSheet: identity 抽出", () => {
     expect(() => parseJobcanSheet({ rows })).toThrow();
   });
 
-  it("氏名が空なら sheetName で補完する", () => {
+  it("規定位置のコードが書式外なら throw(推測フォールバックしない)", () => {
+    // col2 が "A1"(部署コード様)で STAFF_CODE_RE に合わない → 黙って他行を探さず throw
+    const identity = ["試 太郎", "", "A1", "", "TEST DIV->Test TM->テスト", "Z9999", ""];
+    const rows = makeRows(
+      [["8/1(土)", "", "", "", "", "9:00", "18:00"]],
+      MONTH_HEADER,
+      identity,
+    );
+    expect(() => parseJobcanSheet({ rows })).toThrow();
+  });
+
+  it("氏名が空なら sheetName で補完する(コードは規定位置固定)", () => {
     const identity = ["", "", "Z9999", "", "TEST DIV->Test TM->テスト", "", ""];
     const rows = makeRows(
       [["8/1(土)", "", "", "", "", "9:00", "18:00"]],
@@ -266,6 +328,16 @@ describe("parseJobcanSheet: identity 抽出", () => {
     const entries = parseJobcanSheet({ rows, sheetName: "試 太郎シート" });
     expect(entries[0].staffName).toBe("試 太郎シート");
     expect(entries[0].staffCode).toBe("Z9999");
+  });
+
+  it("コード書式は英字1+数字ちょうど4桁。5桁(Z99999)は書式外で throw(⑦)", () => {
+    const identity = ["試 太郎", "", "Z99999", "", "TEST DIV->Test TM->テスト", "", ""];
+    const rows = makeRows(
+      [["8/1(土)", "", "", "", "", "9:00", "18:00"]],
+      MONTH_HEADER,
+      identity,
+    );
+    expect(() => parseJobcanSheet({ rows })).toThrow();
   });
 });
 
@@ -284,6 +356,30 @@ describe("parseJobcanSheet: 対象年月の決定", () => {
     const rows = [["8/1(土)", "", "", "", "", "9:00", "18:00"]];
     const entries = parse(rows);
     expect(entries[0].sourceMonth).toBe("2026-08");
+  });
+
+  it("データ領域の別月注記(1999年1月)にヘッダ年月を乗っ取られない(④)", () => {
+    // 走査範囲外(データ行)に別月が紛れても先頭の正しい対象月を採る
+    const rows = [
+      ["8/1(土)", "", "", "", "", "9:00", "18:00"],
+      ["※ 前月 1999年1月 の注記", "", "", "", "", "", ""],
+    ];
+    const entries = parse(rows);
+    expect(entries[0].sourceMonth).toBe("2026-08");
+    expect(entries[0].shift.date).toBe("2026-08-01");
+  });
+
+  it("ヘッダ走査範囲内に異なる年月が複数あれば曖昧として throw(④ fail-loud)", () => {
+    const rows: string[][] = [
+      [MONTH_HEADER, "", "", "", "", "", ""],
+      ["1999年1月", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", ""],
+      IDENTITY_ROW,
+      ["", "", "", "", "", "", ""],
+      DATA_HEADER_ROW,
+      ["8/1(土)", "", "", "", "", "9:00", "18:00"],
+    ];
+    expect(() => parseJobcanSheet({ rows })).toThrow();
   });
 });
 
