@@ -27,7 +27,12 @@ const HEADER_SCAN_ROWS = 2;
 /** データ開始行のフォールバック位置 */
 const DATA_START_FALLBACK = 9;
 
-const MONTH_HEADER_RE = /(\d{4})年\s*(\d{1,2})月/;
+/**
+ * 対象年月ヘッダ "YYYY年M月" を全マッチ走査(g)で拾う。
+ * 否定先読み `(?!\s*\d{1,2}\s*日)` で "2026年07月25日" のようなフル日付を除外し、
+ * 出力日時を第2の年月と誤認しない(=正当シートの誤throwを防ぐ)。
+ */
+const MONTH_HEADER_RE = /(\d{4})年\s*(\d{1,2})月(?!\s*\d{1,2}\s*日)/g;
 /**
  * スタッフコード書式。英字1文字+数字ちょうど4桁(社長確認で確定)。
  * 部署/チーム/等級コード(例 "A1","X99")や桁数の異なる想定外コードを弾き、
@@ -40,8 +45,8 @@ const TIME_CELL_RE = /^(\d{2}):(\d{2})$/;
 
 /**
  * 対象年月を決定する。targetMonth 優先、無ければ先頭N行の "YYYY年M月" から読む。
- * 走査範囲を狭く絞り、範囲内に異なる年月が複数あれば「曖昧」として throw(乗っ取り防止)。
- * 見つからなければ throw。
+ * 各セル内を全マッチ走査し(1セル内に複数年月があっても検知)、走査窓全体で distinct な
+ * 年月が複数あれば「曖昧」として throw(乗っ取り・silent hijack 防止)。見つからなければ throw。
  */
 function resolveTargetMonth(
   input: JobcanSheetInput,
@@ -51,8 +56,7 @@ function resolveTargetMonth(
   const found = new Map<string, { year: number; month: number }>();
   for (const row of input.rows.slice(0, HEADER_SCAN_ROWS)) {
     for (const cell of row) {
-      const m = normalizeText(cell ?? "").match(MONTH_HEADER_RE);
-      if (m) {
+      for (const m of normalizeText(cell ?? "").matchAll(MONTH_HEADER_RE)) {
         const year = Number(m[1]);
         const month = Number(m[2]);
         found.set(`${year}-${month}`, { year, month });
