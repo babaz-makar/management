@@ -55,6 +55,21 @@ describe("parseJobcanFileName: staffCode の抽出と書式検証", () => {
     expect(result.staffCodeInName).toBeUndefined();
   });
 
+  it("複数括弧でも書式に合致する中身をstaffCodeに採る(田中(株)(A0187))", () => {
+    const result = parseJobcanFileName("田中(株)(A0187) 2026年08月度.xlsx");
+    expect(result).toEqual({ year: 2026, month: 8, staffCodeInName: "A0187" });
+  });
+
+  it("複数括弧で全角混在でも書式合致の中身を採る(田中（株）（A0187）)", () => {
+    const result = parseJobcanFileName("田中（株）（A0187） 2026年08月度.xlsx");
+    expect(result.staffCodeInName).toBe("A0187");
+  });
+
+  it("複数括弧のどれも書式外なら undefined", () => {
+    const result = parseJobcanFileName("田中(株)(部門) 2026年08月度.xlsx");
+    expect(result.staffCodeInName).toBeUndefined();
+  });
+
   it("括弧が無ければ staffCodeInName は undefined(年月は取れる)", () => {
     const result = parseJobcanFileName("2026年08月度.xlsx");
     expect(result.staffCodeInName).toBeUndefined();
@@ -79,6 +94,12 @@ describe("parseJobcanFileName: fail-loud", () => {
   it("月が範囲外(13月)なら throw(不正月を黙って通さない)", () => {
     expect(() =>
       parseJobcanFileName("試 太郎(Z9999) 2026年13月度.xlsx"),
+    ).toThrow();
+  });
+
+  it("月が0(0月)なら throw(下限境界)", () => {
+    expect(() =>
+      parseJobcanFileName("試 太郎(Z9999) 2026年0月度.xlsx"),
     ).toThrow();
   });
 });
