@@ -13,8 +13,8 @@ const STAFF_CODE_RE = /^[A-Za-z]\d{4}$/;
  */
 const YEAR_MONTH_RE = /(\d{4})\s*年\s*(\d{1,2})\s*月/;
 
-/** 半角/全角どちらの括弧にも囲まれた最初の中身を拾う */
-const PAREN_RE = /[（(]([^）)]*)[）)]/;
+/** 半角/全角どちらの括弧にも囲まれた中身を全て拾う(g フラグで走査) */
+const PAREN_RE = /[（(]([^）)]*)[）)]/g;
 
 /**
  * ジョブカン出力ファイル名から対象年月とスタッフコードを取り出す純関数。
@@ -47,9 +47,16 @@ export function parseJobcanFileName(fileName: string): {
     );
   }
 
-  const paren = normalized.match(PAREN_RE);
-  const candidate = paren ? paren[1].trim() : "";
-  const staffCodeInName = STAFF_CODE_RE.test(candidate) ? candidate : undefined;
+  // 全ての括弧を走査し、STAFF_CODE_RE に合致する最初の中身を採る。
+  // "田中(株)(A0187)" のように前段に会社名等の括弧があっても取りこぼさない。
+  let staffCodeInName: string | undefined;
+  for (const m of normalized.matchAll(PAREN_RE)) {
+    const candidate = m[1].trim();
+    if (STAFF_CODE_RE.test(candidate)) {
+      staffCodeInName = candidate;
+      break;
+    }
+  }
 
   return { year, month, staffCodeInName };
 }

@@ -139,7 +139,63 @@ describe("planJobcanEntryUpsert: ルール4(管理外は絶対 delete しない)
   });
 });
 
-describe("planJobcanEntryUpsert: ルール5(終了<開始はデータ異常として loud)", () => {
+describe("planJobcanEntryUpsert: ルール2+ルール4 複合", () => {
+  it("自タグ時刻違いを delete しつつ同スロットの管理外予定には warning を立てる", () => {
+    const existing = [
+      // 自タグ・shiftId一致・時刻違い → delete 対象
+      evt({
+        id: "self-old",
+        shiftId: "A0187:2026-08-01",
+        managedBy: "jobcan-sync",
+        startTime: "10:00",
+        endTime: "19:00",
+      }),
+      // 管理外・新スロット(09:00-18:00)と同一 → delete せず warning
+      evt({ id: "manual", startTime: "09:00", endTime: "18:00" }),
+    ];
+    const plan = planJobcanEntryUpsert(ENTRY, existing);
+    expect(plan.deleteEventIds).toEqual(["self-old"]);
+    expect(plan.create).not.toBeNull();
+    expect(plan.warnings).toHaveLength(1);
+    expect(plan.warnings[0]).toContain("管理外");
+  });
+});
+
+describe("planJobcanEntryUpsert: 時刻正規化(呼び出し側のゼロ埋めに依存しない)", () => {
+  it("非ゼロ埋め(9:00)でも正しく比較し辞書順の誤判定をしない", () => {
+    const entry: ShiftEntry = {
+      ...ENTRY,
+      shift: { date: "2026-08-01", startTime: "9:00", endTime: "18:00" },
+    };
+    const plan = planJobcanEntryUpsert(entry, []);
+    // "9:00" < "18:00" の辞書比較なら異常扱いされてしまうが、正規化で正常作成される
+    expect(plan.create).not.toBeNull();
+    expect(plan.create?.startTime).toBe("09:00");
+    expect(plan.create?.endTime).toBe("18:00");
+    expect(plan.warnings).toEqual([]);
+  });
+
+  it("非ゼロ埋めの既存自タグと一致すれば冪等 skip する", () => {
+    const entry: ShiftEntry = {
+      ...ENTRY,
+      shift: { date: "2026-08-01", startTime: "9:00", endTime: "18:00" },
+    };
+    const existing = [
+      evt({
+        id: "self",
+        shiftId: "A0187:2026-08-01",
+        managedBy: "jobcan-sync",
+        startTime: "09:00",
+        endTime: "18:00",
+      }),
+    ];
+    const plan = planJobcanEntryUpsert(entry, existing);
+    expect(plan.create).toBeNull();
+    expect(plan.deleteEventIds).toEqual([]);
+  });
+});
+
+describe("planJobcanEntryUpsert: ルール5(終了<=開始はデータ異常として loud)", () => {
   it("終了が開始より前ならイベントを作らず warning を積む", () => {
     const nightCross: ShiftEntry = {
       ...ENTRY,
@@ -151,5 +207,36 @@ describe("planJobcanEntryUpsert: ルール5(終了<開始はデータ異常と�
     expect(plan.warnings).toHaveLength(1);
     expect(plan.warnings[0]).toContain("22:00");
     expect(plan.warnings[0]).toContain("05:00");
+  });
+
+  it("0分シフト(終了==開始, 9:00-9:00)も異常として生成せず warning", () => {
+    const zeroDur: ShiftEntry = {
+      ...ENTRY,
+      shift: { date: "2026-08-01", startTime: "09:00", endTime: "09:00" },
+    };
+    const plan = planJobcanEntryUpsert(zeroDur, []);
+    expect(plan.deleteEventIds).toEqual([]);
+    expect(plan.create).toBeNull();
+    expect(plan.warnings).toHaveLength(1);
+  });
+
+  it("異常entryでも既存の同shiftId自タグイベントは delete せず放置+warning", () => {
+    const zeroDur: ShiftEntry = {
+      ...ENTRY,
+      shift: { date: "2026-08-01", startTime: "09:00", endTime: "09:00" },
+    };
+    const existing = [
+      evt({
+        id: "self-old",
+        shiftId: "A0187:2026-08-01",
+        managedBy: "jobcan-sync",
+        startTime: "10:00",
+        endTime: "19:00",
+      }),
+    ];
+    const plan = planJobcanEntryUpsert(zeroDur, existing);
+    expect(plan.deleteEventIds).toEqual([]);
+    expect(plan.create).toBeNull();
+    expect(plan.warnings).toHaveLength(1);
   });
 });

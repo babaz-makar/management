@@ -1,16 +1,20 @@
 import type { ShiftEntry } from "../types";
+import { normalizeTime } from "./normalize";
 import type { CalendarPlan, ExistingEvent, NewEventSpec } from "./calendar-plan";
 
 /** ジョブカン取込で作成するイベントの managedBy タグ */
 const MANAGED_BY_JOBCAN = "jobcan-sync";
 
-/** entry から作成イベント仕様を組み立てる（shiftId は jobcanShiftId をそのまま使う） */
-function buildNewEvent(entry: ShiftEntry): NewEventSpec {
-  const { date, startTime, endTime } = entry.shift;
+/** 作成イベント仕様を組み立てる（shiftId は jobcanShiftId、時刻は正規化済みを使う） */
+function buildNewEvent(
+  entry: ShiftEntry,
+  startTime: string,
+  endTime: string,
+): NewEventSpec {
   return {
     shiftId: entry.jobcanShiftId,
     managedBy: MANAGED_BY_JOBCAN,
-    date,
+    date: entry.shift.date,
     startTime,
     endTime,
     summary: `シフト ${startTime}-${endTime}`,
@@ -27,8 +31,12 @@ function buildNewEvent(entry: ShiftEntry): NewEventSpec {
  *   3. 一致する自タグが無い → create
  *   4. 管理外(managedBy≠jobcan-sync)の予定は絶対 delete しない。
  *      同時刻帯に居ても create のみ行い、重複注意を warnings に積む
- *   5. 終了 < 開始（深夜跨ぎ想定外のデータ異常）はイベントを生成せず warnings に明示。
- *      parseJobcanSheet は end<start を verbatim で残す設計のため、この planning 層で loud に弾く。
+ *   5. 終了 <= 開始（0分シフト・深夜跨ぎ想定外のデータ異常）はイベントを生成せず warnings に明示。
+ *      異常時は既存の同 shiftId 自タグイベントも delete せず放置する（社長確定）。
+ *      parseJobcanSheet は end<=start を verbatim で残す設計のため、この planning 層で loud に弾く。
+ *
+ * 時刻はゼロ埋め有無に呼び出し側が依存しないよう、関数の境界で normalizeTime に通してから
+ * 比較・生成する（"9:00" と "09:00" の辞書順誤判定を自衛する）。
  *
  * ルール5を throw ではなく warning にした理由:
  *   calendar-plan.ts の planCalendarUpsert が「異常は throw せず warnings へ積んで plan を返す」
@@ -40,13 +48,16 @@ export function planJobcanEntryUpsert(
   existing: ExistingEvent[],
 ): CalendarPlan {
   const warnings: string[] = [];
-  const { date, startTime, endTime } = entry.shift;
+  const { date } = entry.shift;
+  // 境界で正規化。呼び出し側のゼロ埋め有無に依存しない。
+  const startTime = normalizeTime(entry.shift.startTime);
+  const endTime = normalizeTime(entry.shift.endTime);
 
-  // --- ルール5: 終了<開始はデータ異常として loud に弾く（生成しない） ---
-  if (endTime < startTime) {
+  // --- ルール5: 終了<=開始はデータ異常として loud に弾く（生成も削除もしない） ---
+  if (endTime <= startTime) {
     warnings.push(
-      `${date} のシフトは終了(${endTime})が開始(${startTime})より前のため反映しませんでした。` +
-        "深夜跨ぎ勤務は想定していないためデータ異常として扱います。元データを確認してください。",
+      `${date} のシフトは終了(${endTime})が開始(${startTime})以前のため反映しませんでした。` +
+        "0分シフトや深夜跨ぎ勤務は想定していないためデータ異常として扱います。元データを確認してください。",
     );
     return { deleteEventIds: [], create: null, warnings };
   }
@@ -59,10 +70,12 @@ export function planJobcanEntryUpsert(
 
   // --- ルール1: 時刻も一致する自タグがあれば冪等 skip ---
   const identical = selfManaged.find(
-    (e) => e.startTime === startTime && e.endTime === endTime,
+    (e) =>
+      normalizeTime(e.startTime) === startTime &&
+      normalizeTime(e.endTime) === endTime,
   );
   if (identical) {
-    return { deleteEventIds: [], create: null, warnings: [] };
+    return { deleteEventIds: [], create: null, warnings };
   }
 
   // --- ルール2: 残る自タグ(時刻違い)は全て置き換え対象として delete ---
@@ -73,8 +86,8 @@ export function planJobcanEntryUpsert(
     (e) =>
       e.managedBy !== MANAGED_BY_JOBCAN &&
       e.date === date &&
-      e.startTime === startTime &&
-      e.endTime === endTime,
+      normalizeTime(e.startTime) === startTime &&
+      normalizeTime(e.endTime) === endTime,
   );
   if (foreignSameSlot.length > 0) {
     warnings.push(
@@ -84,6 +97,6 @@ export function planJobcanEntryUpsert(
   }
 
   // --- ルール2/3: 新イベントを作成 ---
-  const create = buildNewEvent(entry);
+  const create = buildNewEvent(entry, startTime, endTime);
   return { deleteEventIds, create, warnings };
 }
