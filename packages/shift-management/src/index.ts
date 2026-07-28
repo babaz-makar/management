@@ -28,7 +28,8 @@ export { parseJobcanSheet } from "./parsers/jobcan-sheet";
 export type { JobcanSheetInput } from "./parsers/jobcan-sheet";
 export { completeJobcanDate } from "./logic/jobcan-date";
 export { parseJobcanFileName } from "./logic/jobcan-filename";
-export { planJobcanEntryUpsert } from "./logic/jobcan-plan";
+export { planJobcanDayUpsert, groupEntriesByDate } from "./logic/jobcan-plan";
+export type { JobcanDayPlan, JobcanDayContext } from "./logic/jobcan-plan";
 
 // カレンダーupsert計画（DESIGN.md フェーズ2の純関数部分）
 export { planCalendarUpsert } from "./logic/calendar-plan";

@@ -14,7 +14,7 @@ export interface ExistingEvent {
    * extendedProperties.private.managedBy（当ツール管理イベントのみ持つ）。
    * jobcan-sync 反映で「自タグかどうか」を判定するために使う。
    * 手動作成イベントや他ツール管理では undefined / 別値になり、
-   * その場合は絶対に自動削除しない（planJobcanEntryUpsert のルール4）。
+   * その場合は絶対に自動削除しない（planJobcanDayUpsert の不変条件）。
    */
   managedBy?: string;
   /** "YYYY-MM-DD" */

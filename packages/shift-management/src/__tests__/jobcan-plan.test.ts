@@ -1,242 +1,234 @@
 import { describe, expect, it } from "vitest";
-import { planJobcanEntryUpsert } from "../logic/jobcan-plan";
+import {
+  planJobcanDayUpsert,
+  groupEntriesByDate,
+  type JobcanDayContext,
+} from "../logic/jobcan-plan";
 import type { ExistingEvent } from "../logic/calendar-plan";
 import type { ShiftEntry } from "../types";
 
-/** 反映対象の確定シフト1コマ(A0187 / 2026-08-01 09:00-18:00) */
-const ENTRY: ShiftEntry = {
-  jobcanShiftId: "A0187:2026-08-01",
-  staffCode: "A0187",
-  staffName: "試 太郎",
-  affiliation: "TEST DIV",
-  sourceMonth: "2026-08",
-  shift: { date: "2026-08-01", startTime: "09:00", endTime: "18:00" },
-};
+const STAFF = "A0187";
+const DATE = "2026-08-01";
+const DAY_KEY = "A0187:2026-08-01";
+const CTX: JobcanDayContext = { staffCode: STAFF, date: DATE };
 
-const evt = (o: Partial<ExistingEvent> & { id: string }): ExistingEvent => ({
-  date: "2026-08-01",
-  startTime: "09:00",
-  endTime: "18:00",
-  ...o,
-});
+function entry(
+  start: string,
+  end: string,
+  d: string = DATE,
+  code: string = STAFF,
+): ShiftEntry {
+  return {
+    jobcanShiftId: `${code}:${d}`,
+    staffCode: code,
+    staffName: "試 太郎",
+    sourceMonth: "2026-08",
+    shift: { date: d, startTime: start, endTime: end },
+  };
+}
 
-describe("planJobcanEntryUpsert: ルール3(一致する自タグ無し→create)", () => {
-  it("既存が空なら jobcan-sync タグ付きで作成する", () => {
-    const plan = planJobcanEntryUpsert(ENTRY, []);
-    expect(plan.deleteEventIds).toEqual([]);
-    expect(plan.create).toEqual({
-      shiftId: "A0187:2026-08-01",
-      managedBy: "jobcan-sync",
-      date: "2026-08-01",
-      startTime: "09:00",
-      endTime: "18:00",
-      summary: "シフト 09:00-18:00",
-    });
+/** 自タグ(jobcan-sync)の既存イベント */
+function selfEvt(
+  id: string,
+  start: string,
+  end: string,
+  shiftId: string = DAY_KEY,
+): ExistingEvent {
+  return { id, shiftId, managedBy: "jobcan-sync", date: DATE, startTime: start, endTime: end };
+}
+
+/** 管理外/手動の既存イベント(managedBy 省略 or 別値) */
+function foreignEvt(
+  id: string,
+  start: string,
+  end: string,
+  managedBy?: string,
+): ExistingEvent {
+  return { id, managedBy, date: DATE, startTime: start, endTime: end };
+}
+
+describe("planJobcanDayUpsert: #1 巻き添え削除なし(必須回帰)", () => {
+  it("午前だけ時刻変更なら旧午前をdelete+新午前create、午後は触らない", () => {
+    // Arrange
+    const entries = [entry("09:00", "12:00"), entry("13:00", "18:00")];
+    const existing = [
+      selfEvt("am-old", "08:00", "12:00"),
+      selfEvt("pm", "13:00", "18:00"),
+    ];
+    // Act
+    const plan = planJobcanDayUpsert(CTX, entries, existing);
+    // Assert
+    expect(plan.creates).toHaveLength(1);
+    expect(plan.creates[0].startTime).toBe("09:00");
+    expect(plan.creates[0].endTime).toBe("12:00");
+    expect(plan.deleteEventIds).toEqual(["am-old"]);
+    expect(plan.deleteEventIds).not.toContain("pm"); // 午後は巻き添えにしない
     expect(plan.warnings).toEqual([]);
   });
 });
 
-describe("planJobcanEntryUpsert: ルール1(冪等skip)", () => {
-  it("自タグ+shiftId一致+時刻一致なら create/delete なし", () => {
-    const existing = [
-      evt({
-        id: "self1",
+describe("planJobcanDayUpsert: create の中身", () => {
+  it("jobcan-sync タグ・dayKey・正規化時刻の NewEventSpec を作る", () => {
+    const plan = planJobcanDayUpsert(CTX, [entry("09:00", "18:00")], []);
+    expect(plan.creates).toEqual([
+      {
         shiftId: "A0187:2026-08-01",
         managedBy: "jobcan-sync",
+        date: "2026-08-01",
         startTime: "09:00",
         endTime: "18:00",
-      }),
-    ];
-    const plan = planJobcanEntryUpsert(ENTRY, existing);
+        summary: "シフト 09:00-18:00",
+      },
+    ]);
     expect(plan.deleteEventIds).toEqual([]);
-    expect(plan.create).toBeNull();
-    expect(plan.warnings).toEqual([]);
-  });
-
-  it("同じ entry を2回計画しても2回目は skip(冪等)", () => {
-    // 1回目: create された想定のイベントを existing に積む
-    const first = planJobcanEntryUpsert(ENTRY, []);
-    expect(first.create).not.toBeNull();
-    const nowExisting = [
-      evt({
-        id: "created",
-        shiftId: first.create!.shiftId,
-        managedBy: first.create!.managedBy,
-        startTime: first.create!.startTime,
-        endTime: first.create!.endTime,
-      }),
-    ];
-    // 2回目: 同一内容が既にあるので skip
-    const second = planJobcanEntryUpsert(ENTRY, nowExisting);
-    expect(second.deleteEventIds).toEqual([]);
-    expect(second.create).toBeNull();
-    expect(second.warnings).toEqual([]);
-  });
-});
-
-describe("planJobcanEntryUpsert: ルール2(自タグ時刻違い→delete+create)", () => {
-  it("自タグ shiftId 一致だが時刻が違えば旧を消して新を作る", () => {
-    const existing = [
-      evt({
-        id: "old",
-        shiftId: "A0187:2026-08-01",
-        managedBy: "jobcan-sync",
-        startTime: "10:00",
-        endTime: "19:00",
-      }),
-    ];
-    const plan = planJobcanEntryUpsert(ENTRY, existing);
-    expect(plan.deleteEventIds).toEqual(["old"]);
-    expect(plan.create).not.toBeNull();
-    expect(plan.create?.startTime).toBe("09:00");
     expect(plan.warnings).toEqual([]);
   });
 });
 
-describe("planJobcanEntryUpsert: ルール4(管理外は絶対 delete しない)", () => {
-  it("無タグ(managedBy未設定)の同時刻帯予定は消さず create + warning", () => {
-    const existing = [evt({ id: "manual" })]; // managedBy 無し, 同スロット
-    const plan = planJobcanEntryUpsert(ENTRY, existing);
-    expect(plan.deleteEventIds).toEqual([]);
-    expect(plan.create).not.toBeNull();
-    expect(plan.warnings).toHaveLength(1);
-    expect(plan.warnings[0]).toContain("管理外");
-  });
-
-  it("他ツール(shift-management)の同時刻帯予定も消さず warning", () => {
+describe("planJobcanDayUpsert: #2 コマ消失の掃除", () => {
+  it("3コマ中1コマが消えたら消えた分だけdelete、残りはskip", () => {
+    const entries = [entry("09:00", "12:00"), entry("13:00", "18:00")];
     const existing = [
-      evt({ id: "other", managedBy: "shift-management" }),
+      selfEvt("s1", "09:00", "12:00"),
+      selfEvt("s2", "13:00", "18:00"),
+      selfEvt("s3", "19:00", "22:00"), // これが消えたコマ
     ];
-    const plan = planJobcanEntryUpsert(ENTRY, existing);
-    expect(plan.deleteEventIds).toEqual([]);
-    expect(plan.create).not.toBeNull();
-    expect(plan.warnings).toHaveLength(1);
-  });
-
-  it("当ツールの shiftId を持つが managedBy が別(shift-management)なら delete せず作成+warning", () => {
-    // shiftId は一致しても自タグ(jobcan-sync)でなければ掃除対象にしない
-    const existing = [
-      evt({
-        id: "notmine",
-        shiftId: "A0187:2026-08-01",
-        managedBy: "shift-management",
-      }),
-    ];
-    const plan = planJobcanEntryUpsert(ENTRY, existing);
-    expect(plan.deleteEventIds).toEqual([]);
-    expect(plan.create).not.toBeNull();
-    expect(plan.warnings).toHaveLength(1);
-  });
-
-  it("管理外予定が別時刻帯なら warning は出ない(create のみ)", () => {
-    const existing = [
-      evt({ id: "manual", startTime: "20:00", endTime: "23:00" }),
-    ];
-    const plan = planJobcanEntryUpsert(ENTRY, existing);
-    expect(plan.deleteEventIds).toEqual([]);
-    expect(plan.create).not.toBeNull();
-    expect(plan.warnings).toEqual([]);
+    const plan = planJobcanDayUpsert(CTX, entries, existing);
+    expect(plan.deleteEventIds).toEqual(["s3"]);
+    expect(plan.creates).toHaveLength(0); // 2コマとも一致=skip
   });
 });
 
-describe("planJobcanEntryUpsert: ルール2+ルール4 複合", () => {
-  it("自タグ時刻違いを delete しつつ同スロットの管理外予定には warning を立てる", () => {
-    const existing = [
-      // 自タグ・shiftId一致・時刻違い → delete 対象
-      evt({
-        id: "self-old",
-        shiftId: "A0187:2026-08-01",
-        managedBy: "jobcan-sync",
-        startTime: "10:00",
-        endTime: "19:00",
-      }),
-      // 管理外・新スロット(09:00-18:00)と同一 → delete せず warning
-      evt({ id: "manual", startTime: "09:00", endTime: "18:00" }),
-    ];
-    const plan = planJobcanEntryUpsert(ENTRY, existing);
-    expect(plan.deleteEventIds).toEqual(["self-old"]);
-    expect(plan.create).not.toBeNull();
-    expect(plan.warnings).toHaveLength(1);
-    expect(plan.warnings[0]).toContain("管理外");
+describe("planJobcanDayUpsert: #3 元データ同時刻の重複を畳む", () => {
+  it("同一slotが2コマあれば1つに畳んでwarning", () => {
+    const entries = [entry("09:00", "18:00"), entry("09:00", "18:00")];
+    const plan = planJobcanDayUpsert(CTX, entries, []);
+    expect(plan.creates).toHaveLength(1);
+    expect(plan.warnings.some((w) => w.includes("重複"))).toBe(true);
   });
 });
 
-describe("planJobcanEntryUpsert: 時刻正規化(呼び出し側のゼロ埋めに依存しない)", () => {
-  it("非ゼロ埋め(9:00)でも正しく比較し辞書順の誤判定をしない", () => {
-    const entry: ShiftEntry = {
-      ...ENTRY,
-      shift: { date: "2026-08-01", startTime: "9:00", endTime: "18:00" },
-    };
-    const plan = planJobcanEntryUpsert(entry, []);
-    // "9:00" < "18:00" の辞書比較なら異常扱いされてしまうが、正規化で正常作成される
-    expect(plan.create).not.toBeNull();
-    expect(plan.create?.startTime).toBe("09:00");
-    expect(plan.create?.endTime).toBe("18:00");
-    expect(plan.warnings).toEqual([]);
+describe("planJobcanDayUpsert: #4 既存自タグの残骸掃除", () => {
+  it("既存自タグが同slotで2件あれば1件残し他をdelete", () => {
+    const entries = [entry("09:00", "18:00")];
+    const existing = [
+      selfEvt("dup1", "09:00", "18:00"),
+      selfEvt("dup2", "09:00", "18:00"),
+    ];
+    const plan = planJobcanDayUpsert(CTX, entries, existing);
+    expect(plan.deleteEventIds).toEqual(["dup2"]); // dup1 を残す
+    expect(plan.creates).toHaveLength(0); // 一致するので作成しない
+  });
+});
+
+describe("planJobcanDayUpsert: #5 管理外は消さず警告のみ", () => {
+  it("希望slotと同時刻の管理外予定はcreateするがforeignは消さず+warning", () => {
+    const entries = [entry("09:00", "18:00")];
+    const existing = [foreignEvt("manual", "09:00", "18:00")]; // managedBy 無し
+    const plan = planJobcanDayUpsert(CTX, entries, existing);
+    expect(plan.creates).toHaveLength(1);
+    expect(plan.deleteEventIds).toEqual([]); // 管理外は絶対消さない
+    expect(plan.warnings.some((w) => w.includes("管理外"))).toBe(true);
   });
 
-  it("非ゼロ埋めの既存自タグと一致すれば冪等 skip する", () => {
-    const entry: ShiftEntry = {
-      ...ENTRY,
-      shift: { date: "2026-08-01", startTime: "9:00", endTime: "18:00" },
-    };
-    const existing = [
-      evt({
-        id: "self",
-        shiftId: "A0187:2026-08-01",
-        managedBy: "jobcan-sync",
-        startTime: "09:00",
-        endTime: "18:00",
-      }),
-    ];
-    const plan = planJobcanEntryUpsert(entry, existing);
-    expect(plan.create).toBeNull();
+  it("shift-management タグの予定も管理外扱いで消さない", () => {
+    const entries = [entry("09:00", "18:00")];
+    const existing = [foreignEvt("other", "09:00", "18:00", "shift-management")];
+    const plan = planJobcanDayUpsert(CTX, entries, existing);
+    expect(plan.deleteEventIds).toEqual([]);
+    expect(plan.warnings.some((w) => w.includes("管理外"))).toBe(true);
+  });
+});
+
+describe("planJobcanDayUpsert: #6 偽装タグ(shiftId不一致)は削除しない(必須回帰)", () => {
+  it("jobcan-syncだが別staffのshiftIdなら自タグ扱いせず削除せず+warning", () => {
+    const entries = [entry("09:00", "18:00")];
+    const existing = [selfEvt("spoof", "09:00", "18:00", "B0001:2026-08-01")];
+    const plan = planJobcanDayUpsert(CTX, entries, existing);
+    expect(plan.deleteEventIds).toEqual([]); // 偽装タグは絶対消さない
+    expect(plan.creates).toHaveLength(1); // 一致自タグ無し扱い=create
+    expect(plan.warnings.some((w) => w.includes("shiftId"))).toBe(true);
+  });
+
+  it("jobcan-syncだが別dateのshiftIdでも自タグ扱いせず削除しない", () => {
+    const entries = [entry("09:00", "18:00")];
+    const existing = [selfEvt("spoof", "09:00", "18:00", "A0187:2026-08-02")];
+    const plan = planJobcanDayUpsert(CTX, entries, existing);
     expect(plan.deleteEventIds).toEqual([]);
   });
 });
 
-describe("planJobcanEntryUpsert: ルール5(終了<=開始はデータ異常として loud)", () => {
-  it("終了が開始より前ならイベントを作らず warning を積む", () => {
-    const nightCross: ShiftEntry = {
-      ...ENTRY,
-      shift: { date: "2026-08-07", startTime: "22:00", endTime: "05:00" },
-    };
-    const plan = planJobcanEntryUpsert(nightCross, []);
-    expect(plan.deleteEventIds).toEqual([]);
-    expect(plan.create).toBeNull();
-    expect(plan.warnings).toHaveLength(1);
-    expect(plan.warnings[0]).toContain("22:00");
-    expect(plan.warnings[0]).toContain("05:00");
+describe("planJobcanDayUpsert: #7 異常データ時は当日delete全抑制(必須回帰)", () => {
+  it("end<=startの異常1コマ混入→そのコマskip+warning、他は正常diffだが当日deleteは全抑制", () => {
+    const entries = [entry("10:00", "09:00"), entry("14:00", "18:00")];
+    const existing = [selfEvt("old", "09:00", "12:00")]; // 本来なら self-only で delete
+    const plan = planJobcanDayUpsert(CTX, entries, existing);
+    expect(plan.creates).toHaveLength(1); // 正常コマは作る
+    expect(plan.creates[0].startTime).toBe("14:00");
+    expect(plan.deleteEventIds).toEqual([]); // 異常保護: delete 全抑制
+    expect(plan.warnings.some((w) => w.includes("見送"))).toBe(true);
   });
 
-  it("0分シフト(終了==開始, 9:00-9:00)も異常として生成せず warning", () => {
-    const zeroDur: ShiftEntry = {
-      ...ENTRY,
-      shift: { date: "2026-08-01", startTime: "09:00", endTime: "09:00" },
-    };
-    const plan = planJobcanEntryUpsert(zeroDur, []);
-    expect(plan.deleteEventIds).toEqual([]);
-    expect(plan.create).toBeNull();
-    expect(plan.warnings).toHaveLength(1);
-  });
-
-  it("異常entryでも既存の同shiftId自タグイベントは delete せず放置+warning", () => {
-    const zeroDur: ShiftEntry = {
-      ...ENTRY,
-      shift: { date: "2026-08-01", startTime: "09:00", endTime: "09:00" },
-    };
+  it("異常時でもmatched slotの残骸掃除は継続する", () => {
+    const entries = [entry("09:00", "09:00"), entry("13:00", "18:00")]; // 0分異常 + 正常
     const existing = [
-      evt({
-        id: "self-old",
-        shiftId: "A0187:2026-08-01",
-        managedBy: "jobcan-sync",
-        startTime: "10:00",
-        endTime: "19:00",
-      }),
+      selfEvt("k1", "13:00", "18:00"),
+      selfEvt("k2", "13:00", "18:00"), // 一致slotの残骸
     ];
-    const plan = planJobcanEntryUpsert(zeroDur, existing);
+    const plan = planJobcanDayUpsert(CTX, entries, existing);
+    expect(plan.deleteEventIds).toEqual(["k2"]); // 残骸掃除は抑制しない
+    expect(plan.creates).toHaveLength(0); // 13-18 は一致でskip
+  });
+});
+
+describe("planJobcanDayUpsert: #8 空日削除", () => {
+  it("entriesが空なら当日の自タグを全delete", () => {
+    const existing = [
+      selfEvt("a", "09:00", "12:00"),
+      selfEvt("b", "13:00", "18:00"),
+    ];
+    const plan = planJobcanDayUpsert(CTX, [], existing);
+    expect(plan.creates).toEqual([]);
+    expect(plan.deleteEventIds).toEqual(["a", "b"]);
+  });
+});
+
+describe("planJobcanDayUpsert: #9 時刻ゼロ埋め揺れの吸収", () => {
+  it("非ゼロ埋め(9:00)とゼロ埋め既存(09:00)はnormalize後一致でskip", () => {
+    const entries = [entry("9:00", "18:00")];
+    const existing = [selfEvt("s", "09:00", "18:00")];
+    const plan = planJobcanDayUpsert(CTX, entries, existing);
+    expect(plan.creates).toHaveLength(0);
     expect(plan.deleteEventIds).toEqual([]);
-    expect(plan.create).toBeNull();
-    expect(plan.warnings).toHaveLength(1);
+  });
+});
+
+describe("planJobcanDayUpsert: #10 ctx違いコマ混入はfail-loud", () => {
+  it("別dateのコマが混じればthrow", () => {
+    const entries = [entry("09:00", "18:00"), entry("09:00", "18:00", "2026-08-02")];
+    expect(() => planJobcanDayUpsert(CTX, entries, [])).toThrow();
+  });
+
+  it("別staffのコマが混じればthrow", () => {
+    const entries = [entry("09:00", "18:00", DATE, "B0001")];
+    expect(() => planJobcanDayUpsert(CTX, entries, [])).toThrow();
+  });
+});
+
+describe("groupEntriesByDate", () => {
+  it("複数日を日ごとに分割し出現順を保持する", () => {
+    const entries = [
+      entry("09:00", "18:00", "2026-08-03"),
+      entry("10:00", "15:00", "2026-08-01"),
+      entry("11:00", "20:00", "2026-08-03"),
+    ];
+    const grouped = groupEntriesByDate(entries);
+    expect([...grouped.keys()]).toEqual(["2026-08-03", "2026-08-01"]); // 出現順
+    expect(grouped.get("2026-08-03")).toHaveLength(2);
+    expect(grouped.get("2026-08-01")).toHaveLength(1);
+  });
+
+  it("空配列なら空Mapを返す", () => {
+    expect(groupEntriesByDate([]).size).toBe(0);
   });
 });
