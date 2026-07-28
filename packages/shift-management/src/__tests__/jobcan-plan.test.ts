@@ -169,15 +169,26 @@ describe("planJobcanDayUpsert: #7 異常データ時は当日delete全抑制(必
     expect(plan.warnings.some((w) => w.includes("見送"))).toBe(true);
   });
 
-  it("異常時でもmatched slotの残骸掃除は継続する", () => {
+  it("異常時は残骸掃除も含めdeleteを完全抑制する(deleteEventIdsは空)", () => {
     const entries = [entry("09:00", "09:00"), entry("13:00", "18:00")]; // 0分異常 + 正常
     const existing = [
       selfEvt("k1", "13:00", "18:00"),
-      selfEvt("k2", "13:00", "18:00"), // 一致slotの残骸
+      selfEvt("k2", "13:00", "18:00"), // 一致slotの残骸(本来なら掃除対象)
     ];
     const plan = planJobcanDayUpsert(CTX, entries, existing);
-    expect(plan.deleteEventIds).toEqual(["k2"]); // 残骸掃除は抑制しない
+    expect(plan.deleteEventIds).toEqual([]); // 異常時は一切消さない(残骸も含む)
     expect(plan.creates).toHaveLength(0); // 13-18 は一致でskip
+  });
+
+  it("異常時のwarningに残骸整理も見送った旨を含む", () => {
+    const entries = [entry("09:00", "09:00")];
+    const existing = [
+      selfEvt("k1", "13:00", "18:00"),
+      selfEvt("k2", "13:00", "18:00"),
+    ];
+    const plan = planJobcanDayUpsert(CTX, entries, existing);
+    expect(plan.deleteEventIds).toEqual([]);
+    expect(plan.warnings.some((w) => w.includes("見送"))).toBe(true);
   });
 });
 
