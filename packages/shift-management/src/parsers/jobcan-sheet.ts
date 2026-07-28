@@ -65,6 +65,11 @@ function resolveTargetMonth(
   return { year: Number(m[1]), month: Number(m[2]) };
 }
 
+/** セル値を境界で文字列化して trim。非文字列(number/Date/boolean/null)でも安全 */
+function toCell(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
 /**
  * スタッフ同定情報を抽出する。
  *
@@ -75,16 +80,18 @@ function resolveTargetMonth(
  */
 function resolveIdentity(input: JobcanSheetInput): Identity {
   const idRow = input.rows[3] ?? [];
-  const nameCell = (idRow[0] ?? "").trim();
-  const codeCell = (idRow[2] ?? "").trim();
-  const affiliationCell = (idRow[4] ?? "").trim();
+  // セルは境界で String() 化してから trim。xlsx が number/Date/boolean 等の
+  // 非文字列で返しても `.trim is not a function` でパース全体が停止しないようにする。
+  const nameCell = toCell(idRow[0]);
+  const codeCell = toCell(idRow[2]);
+  const affiliationCell = toCell(idRow[4]);
 
   if (!STAFF_CODE_RE.test(codeCell)) {
     throw new Error(
       "staffCode を特定できません(規定位置 4行目col2 が空/書式外。推測フォールバックはしない)",
     );
   }
-  const staffName = nameCell || (input.sheetName ?? "").trim();
+  const staffName = nameCell || toCell(input.sheetName);
   const affiliation = affiliationCell || undefined;
   return { staffCode: codeCell, staffName, affiliation };
 }

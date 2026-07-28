@@ -339,6 +339,64 @@ describe("parseJobcanSheet: identity 抽出", () => {
     );
     expect(() => parseJobcanSheet({ rows })).toThrow();
   });
+
+  // --- 残穴B: 身元行の型崩れ耐性(非文字列セルでクラッシュしない) ---
+
+  it("型崩れ: staffCode セルが数値(99999)でも TypeError にならず書式不一致で throw", () => {
+    const identity: unknown[] = ["試 太郎", "", 99999, "", "TEST DIV->Test TM->テスト", "", ""];
+    const rows = makeRows(
+      [["8/1(土)", "", "", "", "", "9:00", "18:00"]],
+      MONTH_HEADER,
+      identity as unknown as string[],
+    );
+    // number は String()化されても "99999"(英字なし)=STAFF_CODE_RE不一致 → throw
+    expect(() => parseJobcanSheet({ rows })).toThrow();
+  });
+
+  it("型崩れ: staffName が数値/boolean/配列でもクラッシュせず文字列化して取り込む", () => {
+    const identity: unknown[] = [12345, "", "Z9999", "", "TEST DIV->Test TM->テスト", "", ""];
+    const rows = makeRows(
+      [["8/1(土)", "", "", "", "", "9:00", "18:00"]],
+      MONTH_HEADER,
+      identity as unknown as string[],
+    );
+    const entries = parseJobcanSheet({ rows: rows as unknown as string[][] });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].staffCode).toBe("Z9999");
+    expect(entries[0].staffName).toBe("12345");
+  });
+
+  it("型崩れ: affiliation が Date でもクラッシュせずパースが通る", () => {
+    const identity: unknown[] = [
+      "試 太郎",
+      "",
+      "Z9999",
+      "",
+      new Date("2026-08-01T00:00:00Z"),
+      "",
+      "",
+    ];
+    const rows = makeRows(
+      [["8/1(土)", "", "", "", "", "9:00", "18:00"]],
+      MONTH_HEADER,
+      identity as unknown as string[],
+    );
+    const entries = parseJobcanSheet({ rows: rows as unknown as string[][] });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].staffCode).toBe("Z9999");
+  });
+
+  it("型崩れ: staffName が boolean(false)でもクラッシュしない", () => {
+    const identity: unknown[] = [false, "", "Z9999", "", "", "", ""];
+    const rows = makeRows(
+      [["8/1(土)", "", "", "", "", "9:00", "18:00"]],
+      MONTH_HEADER,
+      identity as unknown as string[],
+    );
+    const entries = parseJobcanSheet({ rows: rows as unknown as string[][] });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].staffCode).toBe("Z9999");
+  });
 });
 
 describe("parseJobcanSheet: 対象年月の決定", () => {
