@@ -10,6 +10,13 @@ export interface ExistingEvent {
   id: string;
   /** extendedProperties.private.shiftId（当ツール管理イベントのみ持つ） */
   shiftId?: string;
+  /**
+   * extendedProperties.private.managedBy（当ツール管理イベントのみ持つ）。
+   * jobcan-sync 反映で「自タグかどうか」を判定するために使う。
+   * 手動作成イベントや他ツール管理では undefined / 別値になり、
+   * その場合は絶対に自動削除しない（planJobcanEntryUpsert のルール4）。
+   */
+  managedBy?: string;
   /** "YYYY-MM-DD" */
   date: string;
   /** "HH:MM" */
@@ -22,8 +29,11 @@ export interface ExistingEvent {
 export interface NewEventSpec {
   /** "<slackUserId>:<date>"。冪等な再反映のキー */
   shiftId: string;
-  /** 常に "shift-management"。当ツール管理イベントの目印 */
-  managedBy: "shift-management";
+  /**
+   * 当ツール管理イベントの目印。
+   * Slack変更報告経由なら "shift-management"、ジョブカン確定シフト取込経由なら "jobcan-sync"。
+   */
+  managedBy: "shift-management" | "jobcan-sync";
   /** "YYYY-MM-DD" */
   date: string;
   /** "HH:MM" */
