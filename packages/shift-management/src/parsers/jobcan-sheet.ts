@@ -22,17 +22,11 @@ interface Identity {
 /** シートの列位置(0始まり) */
 const COL = { date: 0, shiftStart: 5, shiftEnd: 6 } as const;
 
-/** 対象年月ヘッダの走査範囲(先頭N行)。注記等による乗っ取りを防ぐため狭く絞る */
-const HEADER_SCAN_ROWS = 2;
 /** データ開始行のフォールバック位置 */
 const DATA_START_FALLBACK = 9;
 
-/**
- * 対象年月ヘッダ "YYYY年M月" を全マッチ走査(g)で拾う。
- * 否定先読み `(?!\s*\d{1,2}\s*日)` で "2026年07月25日" のようなフル日付を除外し、
- * 出力日時を第2の年月と誤認しない(=正当シートの誤throwを防ぐ)。
- */
-const MONTH_HEADER_RE = /(\d{4})年\s*(\d{1,2})月(?!\s*\d{1,2}\s*日)/g;
+/** タイトルセル rows[0][0] 内の最初の "YYYY年M月" を対象年月として読む */
+const MONTH_HEADER_RE = /(\d{4})年\s*(\d{1,2})月/;
 /**
  * スタッフコード書式。英字1文字+数字ちょうど4桁(社長確認で確定)。
  * 部署/チーム/等級コード(例 "A1","X99")や桁数の異なる想定外コードを弾き、
@@ -44,36 +38,27 @@ const DATE_CELL_RE = /^\s*(\d{1,2})\/(\d{1,2})(?=\D|$)/;
 const TIME_CELL_RE = /^(\d{2}):(\d{2})$/;
 
 /**
- * 対象年月を決定する。targetMonth 優先、無ければ先頭N行の "YYYY年M月" から読む。
- * 各セル内を全マッチ走査し(1セル内に複数年月があっても検知)、走査窓全体で distinct な
- * 年月が複数あれば「曖昧」として throw(乗っ取り・silent hijack 防止)。見つからなければ throw。
+ * 対象年月を固定位置から決定論的に決める。
+ * 1. targetMonth があれば最優先(apps/web はファイル名から渡す本筋)。
+ * 2. 無ければ先頭セル rows[0][0](タイトルセル)からのみ、最初の "YYYY年M月" を採用。
+ * 3. 先頭セルに年月が無ければ throw。他のセル・他の行は一切見ない。
+ *
+ * 候補を「走査で拾う」設計をやめ固定セル方式にしたのは、拾う候補が無ければ
+ * 別セルの年月による silent hijack も起きないため(ムーディ再現の抜け道を根絶)。
  */
 function resolveTargetMonth(
   input: JobcanSheetInput,
 ): { year: number; month: number } {
   if (input.targetMonth) return input.targetMonth;
 
-  const found = new Map<string, { year: number; month: number }>();
-  for (const row of input.rows.slice(0, HEADER_SCAN_ROWS)) {
-    for (const cell of row) {
-      for (const m of normalizeText(cell ?? "").matchAll(MONTH_HEADER_RE)) {
-        const year = Number(m[1]);
-        const month = Number(m[2]);
-        found.set(`${year}-${month}`, { year, month });
-      }
-    }
-  }
-  if (found.size === 0) {
+  const titleCell = normalizeText(input.rows[0]?.[0] ?? "");
+  const m = titleCell.match(MONTH_HEADER_RE);
+  if (!m) {
     throw new Error(
-      "対象年月を特定できません(header に YYYY年M月 が無く targetMonth も未指定)",
+      "対象年月を先頭セル(rows[0][0])から特定できません(targetMonth も未指定)",
     );
   }
-  if (found.size > 1) {
-    throw new Error(
-      `対象年月が曖昧です(候補 ${found.size}件: ${[...found.keys()].join(", ")})`,
-    );
-  }
-  return [...found.values()][0];
+  return { year: Number(m[1]), month: Number(m[2]) };
 }
 
 /**
@@ -174,7 +159,7 @@ function rowToEntry(
 /**
  * ジョブカンの確定シフト(1スタッフ1シート)を ShiftEntry[] にパースする純関数。
  *
- * - 対象年月は targetMonth 優先、無ければ先頭2行の "YYYY年M月" から読む(複数異なる年月は throw)
+ * - 対象年月は targetMonth 優先、無ければ先頭セル rows[0][0] の最初の "YYYY年M月"(無ければ throw)
  * - identity(氏名/コード/所属)は4行目から抽出。staffCode は規定位置(col2)固定で
  *   書式外/空なら throw(推測フォールバックせず取込中止=別人ひも付け防止)
  * - データは "日付" ヘッダの次行から(無ければ index9 以降)
