@@ -75,7 +75,8 @@ function buildDesired(
       abnormalPresent = true;
       warnings.push(
         `${ctx.staffCode} ${ctx.date} ${start}-${end} は終了<=開始の異常コマのため生成をスキップし、` +
-          "当日の自動削除も見送りました。0分シフトや深夜跨ぎは想定外です。元データを確認してください。",
+          "当日の自動削除を一切見送りました(重複残骸の整理も含む)。" +
+          "0分シフトや深夜跨ぎは想定外です。元データを確認してください。",
       );
       continue;
     }
@@ -141,6 +142,55 @@ function buildForeignSlots(
   return set;
 }
 
+/** desired 側 diff の中間結果 */
+interface DesiredDiff {
+  creates: NewEventSpec[];
+  deleteEventIds: string[];
+  warnings: string[];
+}
+
+/**
+ * desired 側を出現順に処理し create / 残骸掃除 / foreign 警告を決める。
+ * - matched(self に同 slot あり) → 作成せず、残骸(2件目以降)を掃除対象にする。
+ *   ただし suppressDelete(異常時)の場合は残骸掃除も一切行わない（社長確定: 異常日は何も消さない）。
+ * - desired-only → create。同 slot に管理外予定があれば warning。
+ *
+ * 注: foreign 警告は create する desired-only slot でのみ出す。matched(skip)slot に管理外が
+ *     同居するレアケースは「作成します」の文言と齟齬するため意図的に警告しない割り切り。
+ */
+function diffDesired(
+  ctx: JobcanDayContext,
+  desired: DesiredResult,
+  self: SelfResult,
+  foreignSlots: Set<string>,
+  suppressDelete: boolean,
+): DesiredDiff {
+  const creates: NewEventSpec[] = [];
+  const deleteEventIds: string[] = [];
+  const warnings: string[] = [];
+
+  for (const [key, spec] of desired.bySlot) {
+    const selfBucket = self.bySlot.get(key);
+    if (selfBucket && selfBucket.length > 0) {
+      if (!suppressDelete) {
+        for (let i = 1; i < selfBucket.length; i++) {
+          deleteEventIds.push(selfBucket[i].id);
+        }
+      }
+      continue;
+    }
+    creates.push(spec);
+    if (foreignSlots.has(key)) {
+      warnings.push(
+        `${ctx.date} ${key} に当ツール管理外の予定があります。` +
+          "作成しますが管理外予定は自動削除しません。重複の可能性があるため手動で確認してください。",
+      );
+    }
+  }
+
+  return { creates, deleteEventIds, warnings };
+}
+
 /**
  * ctx(1人・1日)の全コマ entries とその日の既存 existing を突合し、日内 diff で upsert 計画を返す純関数。
  *
@@ -172,38 +222,23 @@ export function planJobcanDayUpsert(
   const self = buildSelf(dayKey, existing);
   const foreignSlots = buildForeignSlots(ctx, existing);
 
-  const warnings = [...desired.warnings, ...self.warnings];
-  const creates: NewEventSpec[] = [];
-  const deleteEventIds: string[] = [];
+  // 社長確定: 当日に異常コマが1件でもあれば「何もしない」を徹底し、当日の delete を
+  // 残骸掃除・消えたコマ掃除を問わず一切行わない（deleteEventIds は完全に空になる）。
+  const suppressDelete = desired.abnormalPresent;
 
-  // desired 側を出現順に処理: matched→skip(+残骸掃除) / desired-only→create。foreign 重なりは warning。
-  for (const [key, spec] of desired.bySlot) {
-    const selfBucket = self.bySlot.get(key);
-    if (selfBucket && selfBucket.length > 0) {
-      // 一致: 作成不要。残骸(2件以上)は先頭を残し他を掃除（異常時も継続）
-      for (let i = 1; i < selfBucket.length; i++) {
-        deleteEventIds.push(selfBucket[i].id);
-      }
-    } else {
-      creates.push(spec);
-      if (foreignSlots.has(key)) {
-        warnings.push(
-          `${ctx.date} ${key} に当ツール管理外の予定があります。` +
-            "作成しますが管理外予定は自動削除しません。重複の可能性があるため手動で確認してください。",
-        );
-      }
-    }
-  }
+  const diff = diffDesired(ctx, desired, self, foreignSlots, suppressDelete);
+  const deleteEventIds = [...diff.deleteEventIds];
 
-  // self-only(desired に無い自タグ)=消えたコマ掃除。ただし異常時は当日 delete を全抑制。
-  if (!desired.abnormalPresent) {
+  // self-only(desired に無い自タグ)=消えたコマ掃除。異常時は抑制。
+  if (!suppressDelete) {
     for (const [key, bucket] of self.bySlot) {
-      if (desired.bySlot.has(key)) continue; // matched は処理済み
+      if (desired.bySlot.has(key)) continue; // matched は diffDesired で処理済み
       for (const e of bucket) deleteEventIds.push(e.id);
     }
   }
 
-  return { creates, deleteEventIds, warnings };
+  const warnings = [...desired.warnings, ...self.warnings, ...diff.warnings];
+  return { creates: diff.creates, deleteEventIds, warnings };
 }
 
 /**
