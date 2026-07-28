@@ -45,9 +45,19 @@ export {
   getAuthUrl,
   listEventsForDate,
   executePlan,
+  listEventsForRange,
+  executeJobcanDayPlan,
   verifySlackRequest,
   runPipeline,
   formatResultMessage,
+  runJobcanReconcile,
   JsonFileTokenStore,
 } from "./server";
-export type { PipelineResult, TokenStore } from "./server";
+export type {
+  PipelineResult,
+  TokenStore,
+  JobcanCalendarPort,
+  JobcanReconcileOptions,
+  JobcanReconcileResult,
+  JobcanDayResult,
+} from "./server";
