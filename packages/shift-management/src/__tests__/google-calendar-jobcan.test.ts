@@ -205,13 +205,15 @@ describe("executeJobcanDayPlan: delete→create 順とTOCTOU再照合", () => {
 
     expect(res.deletedCount).toBe(1);
     expect(res.createdEventIds).toEqual(["new1"]);
+    expect(res.skippedMismatch).toBe(0);
+    expect(res.skippedGone).toBe(0);
     // delete が insert より先
     expect(mocks.del.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.insert.mock.invocationCallOrder[0],
     );
   });
 
-  it("managedBy が jobcan-sync でなければ削除しない(TOCTOU mismatch)", async () => {
+  it("managedBy が jobcan-sync でなければ削除せず skippedMismatch を計上", async () => {
     const plan: JobcanDayPlan = { creates: [], deleteEventIds: ["d1"], warnings: [] };
     mocks.get.mockResolvedValueOnce({
       data: { extendedProperties: { private: { managedBy: "shift-management", shiftId: "A0187:2026-08-01" } } },
@@ -220,10 +222,12 @@ describe("executeJobcanDayPlan: delete→create 順とTOCTOU再照合", () => {
     const res = await executeJobcanDayPlan("rt", "cal", CTX, plan);
 
     expect(res.deletedCount).toBe(0);
+    expect(res.skippedMismatch).toBe(1);
+    expect(res.skippedGone).toBe(0);
     expect(mocks.del).not.toHaveBeenCalled();
   });
 
-  it("shiftId が dayKey と異なれば削除しない(TOCTOU mismatch)", async () => {
+  it("shiftId が dayKey と異なれば削除せず skippedMismatch を計上", async () => {
     const plan: JobcanDayPlan = { creates: [], deleteEventIds: ["d1"], warnings: [] };
     mocks.get.mockResolvedValueOnce({
       data: { extendedProperties: { private: { managedBy: "jobcan-sync", shiftId: "B0002:2026-08-01" } } },
@@ -232,17 +236,51 @@ describe("executeJobcanDayPlan: delete→create 順とTOCTOU再照合", () => {
     const res = await executeJobcanDayPlan("rt", "cal", CTX, plan);
 
     expect(res.deletedCount).toBe(0);
+    expect(res.skippedMismatch).toBe(1);
     expect(mocks.del).not.toHaveBeenCalled();
   });
 
-  it("get が 404 なら冪等 skip(throwしない・削除もしない)", async () => {
+  it("extendedProperties 丸ごと無しなら mismatch 計上して削除しない", async () => {
+    const plan: JobcanDayPlan = { creates: [], deleteEventIds: ["d1"], warnings: [] };
+    mocks.get.mockResolvedValueOnce({ data: {} }); // extendedProperties 無し
+
+    const res = await executeJobcanDayPlan("rt", "cal", CTX, plan);
+
+    expect(res.deletedCount).toBe(0);
+    expect(res.skippedMismatch).toBe(1);
+    expect(mocks.del).not.toHaveBeenCalled();
+  });
+
+  it("get が 404 なら冪等 skip し skippedGone を計上(throwalso削除もしない)", async () => {
     const plan: JobcanDayPlan = { creates: [], deleteEventIds: ["gone"], warnings: [] };
     mocks.get.mockRejectedValueOnce({ code: 404 });
 
     const res = await executeJobcanDayPlan("rt", "cal", CTX, plan);
 
     expect(res.deletedCount).toBe(0);
+    expect(res.skippedGone).toBe(1);
+    expect(res.skippedMismatch).toBe(0);
     expect(mocks.del).not.toHaveBeenCalled();
+  });
+
+  it("delete 2件中 1件own・1件mismatch → deletedCount=1, skippedMismatch=1", async () => {
+    const plan: JobcanDayPlan = { creates: [], deleteEventIds: ["own1", "bad2"], warnings: [] };
+    mocks.get
+      .mockResolvedValueOnce({
+        data: { extendedProperties: { private: { managedBy: "jobcan-sync", shiftId: "A0187:2026-08-01" } } },
+      })
+      .mockResolvedValueOnce({
+        data: { extendedProperties: { private: { managedBy: "jobcan-sync", shiftId: "B0002:2026-08-01" } } },
+      });
+    mocks.del.mockResolvedValueOnce({});
+
+    const res = await executeJobcanDayPlan("rt", "cal", CTX, plan);
+
+    expect(res.deletedCount).toBe(1);
+    expect(res.skippedMismatch).toBe(1);
+    expect(res.skippedGone).toBe(0);
+    expect(mocks.del).toHaveBeenCalledTimes(1);
+    expect(mocks.del.mock.calls[0][0].eventId).toBe("own1"); // own のみ消す
   });
 
   it("get が 404 以外のエラーなら throw", async () => {
@@ -263,5 +301,7 @@ describe("executeJobcanDayPlan: delete→create 順とTOCTOU再照合", () => {
 
     expect(res.createdEventIds).toEqual(["n1", "n2"]);
     expect(res.deletedCount).toBe(0);
+    expect(res.skippedMismatch).toBe(0);
+    expect(res.skippedGone).toBe(0);
   });
 });

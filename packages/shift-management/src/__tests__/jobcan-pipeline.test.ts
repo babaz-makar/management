@@ -61,6 +61,8 @@ function makeFakePort(existing: ExistingEvent[]): Recorder {
       return {
         deletedCount: plan.deleteEventIds.length,
         createdEventIds: plan.creates.map((_, i) => `new-${ctx.date}-${i}`),
+        skippedMismatch: 0,
+        skippedGone: 0,
       };
     },
   };
@@ -148,6 +150,8 @@ describe("runJobcanReconcile: per-day error は他日継続", () => {
         return {
           deletedCount: plan.deleteEventIds.length,
           createdEventIds: [],
+          skippedMismatch: 0,
+          skippedGone: 0,
         };
       },
     };

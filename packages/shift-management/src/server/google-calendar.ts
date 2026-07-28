@@ -207,24 +207,44 @@ async function verifyOwnership(
   }
 }
 
+/** executeJobcanDayPlan の実行結果 */
+export interface JobcanDayExecution {
+  deletedCount: number;
+  createdEventIds: string[];
+  /** TOCTOU 再照合で自タグ不一致だったため消さなかった件数(付け替え/競合の兆候) */
+  skippedMismatch: number;
+  /** delete 直前に既に消えていた(404)ため冪等 skip した件数 */
+  skippedGone: number;
+}
+
 /**
  * JobcanDayPlan を Google Calendar へ反映する。delete→create の順で実行。
  * 各 deleteEventId は delete 前に verifyOwnership で自タグ(jobcan-sync & shiftId=dayKey)を厳密再照合し、
- * 不一致なら消さない / 404 なら冪等 skip / 404以外は throw。
+ * 不一致なら消さず skippedMismatch に計上 / 404 なら冪等 skip し skippedGone に計上 / 404以外は throw。
+ * 呼び出し側(runJobcanReconcile→Slack通知)が異常兆候を検知できるよう件数を返す。
  */
 export async function executeJobcanDayPlan(
   refreshToken: string,
   calendarId: string,
   ctx: JobcanDayContext,
   plan: JobcanDayPlan,
-): Promise<{ deletedCount: number; createdEventIds: string[] }> {
+): Promise<JobcanDayExecution> {
   const cal = calendarClient(refreshToken);
   const dayKey = `${ctx.staffCode}:${ctx.date}`;
 
   let deletedCount = 0;
+  let skippedMismatch = 0;
+  let skippedGone = 0;
   for (const eventId of plan.deleteEventIds) {
     const check = await verifyOwnership(cal, calendarId, eventId, dayKey);
-    if (check !== "own") continue; // mismatch は消さない / gone は冪等 skip
+    if (check === "mismatch") {
+      skippedMismatch++;
+      continue;
+    }
+    if (check === "gone") {
+      skippedGone++;
+      continue;
+    }
     await cal.events.delete({ calendarId, eventId });
     deletedCount++;
   }
@@ -238,7 +258,7 @@ export async function executeJobcanDayPlan(
     if (created.data.id) createdEventIds.push(created.data.id);
   }
 
-  return { deletedCount, createdEventIds };
+  return { deletedCount, createdEventIds, skippedMismatch, skippedGone };
 }
 
 /** NewEventSpec → Google Calendar API の event リソース */

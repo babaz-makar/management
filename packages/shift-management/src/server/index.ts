@@ -6,6 +6,7 @@ export {
   listEventsForRange,
   executeJobcanDayPlan,
 } from "./google-calendar";
+export type { JobcanDayExecution } from "./google-calendar";
 
 export { verifySlackRequest } from "./slack-verify";
 

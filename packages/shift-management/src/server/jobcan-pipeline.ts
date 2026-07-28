@@ -6,7 +6,11 @@ import {
 } from "../logic/jobcan-plan";
 import type { ExistingEvent } from "../logic/calendar-plan";
 import type { ShiftEntry } from "../types";
-import { executeJobcanDayPlan, listEventsForRange } from "./google-calendar";
+import {
+  executeJobcanDayPlan,
+  listEventsForRange,
+  type JobcanDayExecution,
+} from "./google-calendar";
 
 /** カレンダー I/O 境界。テストで fake を差し込めるよう DI する */
 export interface JobcanCalendarPort {
@@ -21,7 +25,7 @@ export interface JobcanCalendarPort {
     calendarId: string,
     ctx: JobcanDayContext,
     plan: JobcanDayPlan,
-  ): Promise<{ deletedCount: number; createdEventIds: string[] }>;
+  ): Promise<JobcanDayExecution>;
 }
 
 /** 既定 port: google-calendar.ts の実装をバインド */
@@ -40,7 +44,7 @@ export interface JobcanReconcileOptions {
 export interface JobcanDayResult {
   date: string;
   plan: JobcanDayPlan;
-  executed: { deletedCount: number; createdEventIds: string[] } | null;
+  executed: JobcanDayExecution | null;
   error?: string;
 }
 
@@ -87,6 +91,57 @@ function bucketByDate(existing: ExistingEvent[]): Map<string, ExistingEvent[]> {
   return map;
 }
 
+/** entries の staffCode / sourceMonth が単一であることを検証(混在は fail-loud) */
+function assertSingleStaffAndMonth(
+  entries: ShiftEntry[],
+  staffCode: string,
+  sourceMonth: string,
+): void {
+  for (const e of entries) {
+    if (e.staffCode !== staffCode) {
+      throw new Error(
+        `runJobcanReconcile: entries に複数の staffCode が混在(${staffCode} と ${e.staffCode})。1人分ずつ渡してください`,
+      );
+    }
+    if (e.sourceMonth !== sourceMonth) {
+      throw new Error(
+        `runJobcanReconcile: entries に複数の sourceMonth が混在(${sourceMonth} と ${e.sourceMonth})。1か月分ずつ渡してください`,
+      );
+    }
+  }
+}
+
+/**
+ * entries に無い欠番日のうち、レンジ内かつ自タグ(jobcan-sync & shiftId=dayKey)を含む日だけ
+ * 空日削除の plan を実行する。レンジ外・自タグ無しは絶対に触らない。
+ */
+async function reconcileRemovedDays(
+  port: JobcanCalendarPort,
+  refreshToken: string,
+  calendarId: string,
+  staffCode: string,
+  byDate: Map<string, ShiftEntry[]>,
+  existingByDate: Map<string, ExistingEvent[]>,
+  minDate: string,
+  maxDate: string,
+  dryRun: boolean,
+): Promise<JobcanDayResult[]> {
+  const results: JobcanDayResult[] = [];
+  for (const [date, dayExisting] of existingByDate) {
+    if (byDate.has(date)) continue; // entries に在る日は処理済み
+    if (date < minDate || date > maxDate) continue; // レンジ外は絶対触らない
+    const dayKey = `${staffCode}:${date}`;
+    const hasSelf = dayExisting.some(
+      (e) => e.managedBy === "jobcan-sync" && e.shiftId === dayKey,
+    );
+    if (!hasSelf) continue; // 自タグ無い日は触らない
+    const ctx: JobcanDayContext = { staffCode, date };
+    const plan = planJobcanDayUpsert(ctx, [], dayExisting);
+    results.push(await runDay(port, refreshToken, calendarId, ctx, plan, dryRun));
+  }
+  return results;
+}
+
 /**
  * 1人1か月ぶんの確定シフト entries をカレンダーへ突合反映する。
  *
@@ -115,18 +170,7 @@ export async function runJobcanReconcile(
   // 2. staffCode / sourceMonth の単一性を検証(fail-loud)。
   const staffCode = entries[0].staffCode;
   const sourceMonth = entries[0].sourceMonth;
-  for (const e of entries) {
-    if (e.staffCode !== staffCode) {
-      throw new Error(
-        `runJobcanReconcile: entries に複数の staffCode が混在(${staffCode} と ${e.staffCode})。1人分ずつ渡してください`,
-      );
-    }
-    if (e.sourceMonth !== sourceMonth) {
-      throw new Error(
-        `runJobcanReconcile: entries に複数の sourceMonth が混在(${sourceMonth} と ${e.sourceMonth})。1か月分ずつ渡してください`,
-      );
-    }
-  }
+  assertSingleStaffAndMonth(entries, staffCode, sourceMonth);
 
   // 3. レンジ = min..max(YYYY-MM-DD 文字列比較は単調)。
   const byDate = groupEntriesByDate(entries);
@@ -150,18 +194,19 @@ export async function runJobcanReconcile(
 
   // 8. reconcileRemovals のときだけ、レンジ内・自タグ有りの欠番日を空日削除。
   if (options.reconcileRemovals === true) {
-    for (const [date, dayExisting] of existingByDate) {
-      if (byDate.has(date)) continue; // entries に在る日は処理済み
-      if (date < minDate || date > maxDate) continue; // レンジ外は絶対触らない
-      const dayKey = `${staffCode}:${date}`;
-      const hasSelf = dayExisting.some(
-        (e) => e.managedBy === "jobcan-sync" && e.shiftId === dayKey,
-      );
-      if (!hasSelf) continue; // 自タグ無い日は触らない
-      const ctx: JobcanDayContext = { staffCode, date };
-      const plan = planJobcanDayUpsert(ctx, [], dayExisting);
-      days.push(await runDay(port, refreshToken, calendarId, ctx, plan, options.dryRun));
-    }
+    days.push(
+      ...(await reconcileRemovedDays(
+        port,
+        refreshToken,
+        calendarId,
+        staffCode,
+        byDate,
+        existingByDate,
+        minDate,
+        maxDate,
+        options.dryRun,
+      )),
+    );
   }
 
   return { staffCode, calendarId, sourceMonth, dryRun: options.dryRun, days };

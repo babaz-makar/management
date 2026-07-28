@@ -60,4 +60,5 @@ export type {
   JobcanReconcileOptions,
   JobcanReconcileResult,
   JobcanDayResult,
+  JobcanDayExecution,
 } from "./server";
