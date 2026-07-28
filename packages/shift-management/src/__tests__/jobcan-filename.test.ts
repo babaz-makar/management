@@ -102,4 +102,23 @@ describe("parseJobcanFileName: fail-loud", () => {
       parseJobcanFileName("試 太郎(Z9999) 2026年0月度.xlsx"),
     ).toThrow();
   });
+
+  it("相異なる年月が2つ以上あれば throw(前置の別月に黙って化けない)", () => {
+    expect(() =>
+      parseJobcanFileName("2025年5月分を修正 2026年08月度.xlsx"),
+    ).toThrow();
+  });
+
+  it("入社日など別年月が前置されても throw(2023年12月入社 … 2026年08月度)", () => {
+    expect(() =>
+      parseJobcanFileName("2023年12月入社 試 太郎(A0187) 2026年08月度.xlsx"),
+    ).toThrow();
+  });
+
+  it("同一年月が2回出るだけなら曖昧でないため採用する", () => {
+    const result = parseJobcanFileName(
+      "2026年8月 試 太郎(A0187) 2026年08月度.xlsx",
+    );
+    expect(result).toEqual({ year: 2026, month: 8, staffCodeInName: "A0187" });
+  });
 });

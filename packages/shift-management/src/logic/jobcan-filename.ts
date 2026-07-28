@@ -10,8 +10,10 @@ const STAFF_CODE_RE = /^[A-Za-z]\d{4}$/;
 /**
  * ファイル名中の対象年月。"2026年08月度" / "2026年8月度" の双方を許容。
  * normalizeText 後に評価するので全角数字・全角空白も半角へ寄った状態で判定する。
+ * g フラグで全候補を走査し、相異なる年月が複数あれば fail-loud で弾く
+ * （前置の別年月に黙って化けるのを防ぐ）。
  */
-const YEAR_MONTH_RE = /(\d{4})\s*年\s*(\d{1,2})\s*月/;
+const YEAR_MONTH_RE = /(\d{4})\s*年\s*(\d{1,2})\s*月/g;
 
 /** 半角/全角どちらの括弧にも囲まれた中身を全て拾う(g フラグで走査) */
 const PAREN_RE = /[（(]([^）)]*)[）)]/g;
@@ -33,14 +35,27 @@ export function parseJobcanFileName(fileName: string): {
 } {
   const normalized = normalizeText(fileName);
 
-  const ym = normalized.match(YEAR_MONTH_RE);
-  if (!ym) {
+  // 全ての "YYYY年M月" を走査。相異なる年月が混在すれば曖昧なので fail-loud。
+  const seen = new Map<string, { year: number; month: number }>();
+  for (const m of normalized.matchAll(YEAR_MONTH_RE)) {
+    const year = Number(m[1]);
+    const month = Number(m[2]);
+    seen.set(`${year}-${month}`, { year, month });
+  }
+  if (seen.size === 0) {
     throw new Error(
       "ファイル名から対象年月を特定できません(YYYY年M月 が見つからない。推測して既定値は入れない)",
     );
   }
-  const year = Number(ym[1]);
-  const month = Number(ym[2]);
+  if (seen.size > 1) {
+    const candidates = [...seen.values()]
+      .map((c) => `${c.year}年${c.month}月`)
+      .join(", ");
+    throw new Error(
+      `ファイル名に相異なる年月が複数あり対象年月を確定できません(候補: ${candidates})。取り違え防止のため取込を中止します`,
+    );
+  }
+  const { year, month } = [...seen.values()][0];
   if (month < 1 || month > 12) {
     throw new Error(
       `ファイル名の月が範囲外です(${month})。対象年月を確定できないため取込を中止します`,
