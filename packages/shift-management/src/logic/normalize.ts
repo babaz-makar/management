@@ -1,8 +1,13 @@
 /**
- * Slack報告文の表記揺れをパース前に吸収する純関数。
+ * Slack報告文・xlsxセルの表記揺れをパース前に吸収する純関数。
  * 全角数字・全角コロン・全角スラッシュ・全角スペースを半角へ寄せる。
+ *
+ * 入口で `String(input ?? "")` に正規化し、xlsxライブラリが number/Date で返す
+ * 非文字列セルでもクラッシュ(`text.replace is not a function`)しないよう防御する。
+ * 文字列入力に対する挙動は不変。
  */
-export function normalizeText(text: string): string {
+export function normalizeText(input: unknown): string {
+  const text = String(input ?? "");
   return text
     .replace(/[０-９]/g, (ch) =>
       String.fromCharCode(ch.charCodeAt(0) - 0xfee0),

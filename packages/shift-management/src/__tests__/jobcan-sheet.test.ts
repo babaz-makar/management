@@ -395,8 +395,8 @@ describe("parseJobcanSheet: 対象年月の決定", () => {
     expect(entries[0].shift.date).toBe("2026-08-01");
   });
 
-  it("④ムーディE: rows[0][0] が日付つき(締切 2026年8月15日)なら最初のマッチ 2026-08 を採用し別セルに化けない", () => {
-    // rows[0][0] 内の最初の "年M月" = 8月。別セルの 2025年12月 は見ない(silent hijackしない)
+  it("④ムーディE: rows[0][0] が年月始まりでない(締切 2026年8月15日 …)なら先頭アンカーで throw(別セルに化けない)", () => {
+    // 先頭アンカー導入後: 先頭が "締切" で年月始まりでない → fail-loud。別セルの 2025年12月 も見ない
     const rows: string[][] = [
       ["締切 2026年8月15日", "2025年12月", "", "", "", "", ""],
       ["", "", "", "", "", "", ""],
@@ -406,9 +406,100 @@ describe("parseJobcanSheet: 対象年月の決定", () => {
       DATA_HEADER_ROW,
       ["8/1(土)", "", "", "", "", "9:00", "18:00"],
     ];
+    expect(() => parseJobcanSheet({ rows })).toThrow();
+  });
+
+  // --- 修正1: M-④ 先頭アンカー(silent→fail-loud) ---
+
+  it("M-④: rows[0][0] の対象月より前に別年月があると silent に化けず throw(出力日時 2026年07月25日 ...)", () => {
+    // 先頭が年月で始まらない → fail-loud。2026-07 に黙って化けない
+    const rows: string[][] = [
+      ["出力日時 2026年07月25日 2026年8月度", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", ""],
+      IDENTITY_ROW,
+      ["", "", "", "", "", "", ""],
+      DATA_HEADER_ROW,
+      ["8/1(土)", "", "", "", "", "9:00", "18:00"],
+    ];
+    expect(() => parseJobcanSheet({ rows })).toThrow();
+  });
+
+  it("M-④: 前年比 2025年12月 実績 2026年8月度 も throw(2025-12 に黙って化けない)", () => {
+    const rows: string[][] = [
+      ["前年比 2025年12月 実績 2026年8月度", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", ""],
+      IDENTITY_ROW,
+      ["", "", "", "", "", "", ""],
+      DATA_HEADER_ROW,
+      ["8/1(土)", "", "", "", "", "9:00", "18:00"],
+    ];
+    expect(() => parseJobcanSheet({ rows })).toThrow();
+  });
+
+  it("M-④: 全角の先頭空白(　2026年8月)は normalizeText 後にアンカーを通過し 2026-08", () => {
+    const rows: string[][] = [
+      ["　2026年8月", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", ""],
+      IDENTITY_ROW,
+      ["", "", "", "", "", "", ""],
+      DATA_HEADER_ROW,
+      ["8/1(土)", "", "", "", "", "9:00", "18:00"],
+    ];
     const entries = parseJobcanSheet({ rows });
     expect(entries[0].sourceMonth).toBe("2026-08");
+  });
+
+  // --- 修正2: 型崩れ(非文字列セル)耐性 ---
+
+  it("型崩れ: rows[0][0] が数値(2026)でも TypeError にならず throw", () => {
+    const rows: unknown[][] = [
+      [2026, "", "", "", "", "", ""],
+      ["", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", ""],
+      IDENTITY_ROW,
+      ["", "", "", "", "", "", ""],
+      DATA_HEADER_ROW,
+      ["8/1(土)", "", "", "", "", "9:00", "18:00"],
+    ];
+    expect(() =>
+      parseJobcanSheet({ rows: rows as unknown as string[][] }),
+    ).toThrow();
+  });
+
+  it("型崩れ: 数値の時刻/日付セルが混じってもパース全体は落ちず、数値時刻行は不採用", () => {
+    // 日付列が数値・時刻列が数値。落ちずに該当行スキップ(数値は書式外)
+    const rows: unknown[][] = [
+      [MONTH_HEADER, "", "", "", "", "", ""],
+      ["", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", ""],
+      IDENTITY_ROW,
+      ["", "", "", "", "", "", ""],
+      DATA_HEADER_ROW,
+      ["8/1(土)", "", "", "", "", "9:00", "18:00"],
+      [45000, "", "", "", "", 900, 1800],
+    ];
+    const entries = parseJobcanSheet({ rows: rows as unknown as string[][] });
+    expect(entries).toHaveLength(1);
     expect(entries[0].shift.date).toBe("2026-08-01");
+  });
+
+  it("型崩れ: null/undefined セルは従来どおり空扱いでスキップ", () => {
+    const rows: unknown[][] = [
+      [MONTH_HEADER, "", "", "", "", "", ""],
+      ["", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", ""],
+      IDENTITY_ROW,
+      ["", "", "", "", "", "", ""],
+      DATA_HEADER_ROW,
+      ["8/1(土)", "", "", "", "", "9:00", "18:00"],
+      [null, null, null, null, null, null, null],
+      [undefined, undefined, undefined, undefined, undefined, undefined, undefined],
+    ];
+    const entries = parseJobcanSheet({ rows: rows as unknown as string[][] });
+    expect(entries).toHaveLength(1);
   });
 });
 
