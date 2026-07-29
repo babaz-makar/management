@@ -9,9 +9,13 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
+// 上流の生 err.message に秘密(接続文字列)が載る事故を模す。runJobcanImport は
+// この生メッセージを逐語転写してはならない(M-3 と対称の秘密非包含要件)。
+const SECRET_DSN = "postgres://user:PASSWORD@host";
+
 vi.mock("../server/jobcan-reconcile-all", () => ({
   reconcileJobcanForAllStaff: vi.fn(async () => {
-    throw new Error("reconcile-all backend down");
+    throw new Error(`reconcile-all backend down ${SECRET_DSN}`);
   }),
 }));
 
@@ -95,7 +99,7 @@ describe("runJobcanImport: reconcile-all が万一 throw しても fileErrors �
     // reconcile 失敗も結果に載る(全損しない)。
     expect(result.reconcileError).toBeDefined();
     expect(result.reconcile.reconciled).toEqual([]);
-    expect(result.summary.staffCount).toBe(0);
+    expect(result.summary.staffMonthCount).toBe(0);
   });
 
   it("reconcileError は formatJobcanImportSummary で可視化される", async () => {
@@ -106,5 +110,21 @@ describe("runJobcanImport: reconcile-all が万一 throw しても fileErrors �
     );
     const text = formatJobcanImportSummary(result);
     expect(text).toContain("突合");
+  });
+
+  it("reconcileError は上流 err の生メッセージ(接続文字列等の秘密)を逐語転写しない", async () => {
+    const result = await runJobcanImport(
+      [file("馬場(A0187) 2026年08月度.xlsx", "A0187")],
+      fakeDeps(),
+      DRY,
+    );
+
+    // 生 err.message に載った秘密が reconcileError / 整形出力のどちらにも出ない。
+    expect(result.reconcileError).toBeDefined();
+    expect(result.reconcileError).not.toContain(SECRET_DSN);
+    expect(result.reconcileError).not.toContain("PASSWORD");
+    const text = formatJobcanImportSummary(result);
+    expect(text).not.toContain(SECRET_DSN);
+    expect(text).not.toContain("PASSWORD");
   });
 });

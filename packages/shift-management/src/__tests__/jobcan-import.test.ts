@@ -192,7 +192,7 @@ describe("runJobcanImport: 複数ファイルを集約して reconcileJobcanForA
     expect(b.calendarId).toBe("b@example.com");
     expect(b.refreshToken).toBe("rt-B");
     expect(result.summary.totalEntries).toBe(2);
-    expect(result.summary.staffCount).toBe(2);
+    expect(result.summary.staffMonthCount).toBe(2);
     expect(result.summary.importedFiles).toBe(2);
   });
 });
@@ -388,7 +388,7 @@ describe("runJobcanImport: 空・全損の境界", () => {
       importedFiles: 0,
       erroredFiles: 0,
       totalEntries: 0,
-      staffCount: 0,
+      staffMonthCount: 0,
       totalCreates: 0,
       totalDeletes: 0,
       warningCount: 0,
@@ -497,9 +497,31 @@ describe("runJobcanImport(M-2): 同一人物の複数月を別バケツで両方
     expect(months).toEqual(["2026-08", "2026-09"]);
     // 全員 A0187(同一人物・別月)。
     expect(result.reconcile.reconciled.every((r) => r.staffCode === "A0187")).toBe(true);
-    // summary が両月ぶんを数える。
-    expect(result.summary.staffCount).toBe(2);
+    // summary は「人×月バケツ数」を数える(1人2ヶ月 → 2)。人数ではない。
+    expect(result.summary.staffMonthCount).toBe(2);
     expect(result.summary.totalEntries).toBe(2);
+  });
+
+  it("1人2ヶ月投入時、サマリ文言が『2名』と人数を誤認させない(人×月=2件 と読める)", async () => {
+    const calls: ReconcileCall[] = [];
+    const deps = makeDeps({
+      directory: { A0187: "a@example.com" },
+      resolve: okResolve({ "a@example.com": "rt-A" }),
+      calls,
+    });
+    const files = [
+      file("馬場(A0187) 2026年08月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }], 8),
+      file("馬場(A0187) 2026年09月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }], 9),
+    ];
+
+    const result = await runJobcanImport(files, deps, DRY);
+    const text = formatJobcanImportSummary(result);
+
+    // 1人しかいないのに「2名」と人数を過大表示してはならない。
+    expect(text).not.toContain("2名");
+    // 人×月バケツ=2件 と読める表現になっている。
+    expect(text).toContain("人×月");
+    expect(text).toContain("2件");
   });
 });
 

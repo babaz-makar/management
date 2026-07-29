@@ -68,8 +68,11 @@ export interface JobcanImportSummary {
   erroredFiles: number;
   /** 集約された総 entries 数。 */
   totalEntries: number;
-  /** reconcile 対象になった(解決成功)スタッフ数。 */
-  staffCount: number;
+  /**
+   * reconcile 対象になった「人×月バケツ」数。集約キーが staffCode::sourceMonth の
+   * ため、同一人物でも月ごとに 1 件と数える(1人2ヶ月 → 2)。人数ではない点に注意。
+   */
+  staffMonthCount: number;
   /** 全 plan 合計の作成予定数。 */
   totalCreates: number;
   /** 全 plan 合計の削除予定数。 */
@@ -176,6 +179,14 @@ function importOneFile(f: JobcanImportFile): ImportedFile {
 const UNEXPECTED_FILE_MESSAGE =
   "予期しないエラーによりこのファイルの取込を中止しました(他ファイルの処理は継続しました)";
 
+/**
+ * reconcile-all 全体が万一 throw した場合の固定文言。上流 err.message には
+ * DB/API 依存で接続文字列等の秘密が載りうるため、生メッセージは逐語転写しない
+ * (M-3 の per-staff warning と対称の秘密非包含方針)。詳細はサーバーログ側に残る。
+ */
+const RECONCILE_ALL_ERROR_MESSAGE =
+  "取込処理全体でエラーが発生しました(詳細はサーバーログを確認してください)";
+
 /** 壊れたファイルオブジェクトでも fileName 取得で全損しないよう安全に読む。 */
 function safeFileName(f: JobcanImportFile): string {
   try {
@@ -255,7 +266,7 @@ function buildSummary(
     importedFiles,
     erroredFiles: fileErrors.length,
     totalEntries: entries.length,
-    staffCount: reconcile.reconciled.length,
+    staffMonthCount: reconcile.reconciled.length,
     totalCreates,
     totalDeletes,
     warningCount: reconcile.warnings.length,
@@ -291,12 +302,13 @@ export async function runJobcanImport(
       reconcile,
       summary: buildSummary(files, fileErrors, importedFiles, entries, reconcile, options.dryRun),
     };
-  } catch (err: unknown) {
+  } catch {
+    // 上流 err の生メッセージ(秘密を含みうる)は転写せず、固定文言だけを載せる。
     const reconcile: JobcanReconcileAllResult = { reconciled: [], warnings: [] };
     return {
       fileErrors,
       reconcile,
-      reconcileError: getErrorMessage(err),
+      reconcileError: RECONCILE_ALL_ERROR_MESSAGE,
       summary: buildSummary(files, fileErrors, importedFiles, entries, reconcile, options.dryRun),
     };
   }
@@ -308,7 +320,7 @@ function summaryHeadline(s: JobcanImportSummary): string {
   return (
     `【ジョブカン取込結果 / ${mode}】\n` +
     `対象ファイル ${s.totalFiles}件 / 取込 ${s.importedFiles}件 / エラー ${s.erroredFiles}件\n` +
-    `対象スタッフ ${s.staffCount}名 / 総シフト ${s.totalEntries}件 / ` +
+    `対象(人×月) ${s.staffMonthCount}件 / 総シフト ${s.totalEntries}件 / ` +
     `作成予定 ${s.totalCreates}件 / 削除予定 ${s.totalDeletes}件`
   );
 }
