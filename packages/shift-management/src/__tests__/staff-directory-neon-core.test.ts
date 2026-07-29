@@ -96,6 +96,11 @@ describe("neonGetEmail", () => {
     await expect(neonGetEmail(sql, "a0187")).rejects.toThrow();
     expect(calls).toHaveLength(0);
   });
+
+  it("行が返す email が不正なら throw する(list と対称に戻り値も検証)", async () => {
+    const { sql } = createFakeSql(() => [{ email: "not-an-email" }]);
+    await expect(neonGetEmail(sql, "A0187")).rejects.toThrow();
+  });
 });
 
 describe("neonListEntries", () => {

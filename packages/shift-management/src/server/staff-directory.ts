@@ -52,6 +52,21 @@ export function assertEmail(email: string): string {
 }
 
 /**
+ * 配列でない plain object(staffCode -> email マップとして扱える形)か判定する。
+ * 配列 / null / プリミティブ(number, string, boolean 等)は false。
+ */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** エラーメッセージ用に JSON 値の種別を人間可読で返す。 */
+function describeJsonType(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+/**
  * ファイル(JSON)永続の StaffDirectory 実装。追加依存ゼロ(Node 組込 fs/path のみ)。
  * JsonFileTokenStore と同じ構造。
  */
@@ -63,18 +78,29 @@ export class JsonFileStaffDirectory implements StaffDirectory {
    * - 未作成(初回)は空扱い {} を返す。
    * - 存在するが読み取り不能/JSONパース不能は throw(fail-loud)。
    *   握りつぶして {} を返すと、続く set が全件を黙って上書き消去する事故になるため。
+   * - パースは通るが「配列でない plain object」でない値(配列 / null / プリミティブ)も throw。
+   *   特に配列JSONだと set が throw せず成功を装い、JSON.stringify が名前付き
+   *   プロパティを捨てて既存の対応表が黙って消える(別経路の静かなデータ消失)ため。
    */
   private read(): Record<string, string> {
     if (!existsSync(this.filePath)) return {};
     const raw = readFileSync(this.filePath, "utf-8");
+    let parsed: unknown;
     try {
-      return JSON.parse(raw) as Record<string, string>;
+      parsed = JSON.parse(raw);
     } catch (cause) {
       throw new Error(
         `failed to parse staff directory JSON at ${this.filePath}`,
         { cause },
       );
     }
+    if (!isPlainObject(parsed)) {
+      throw new Error(
+        `invalid staff directory JSON at ${this.filePath}: expected a plain object of staffCode -> email`,
+        { cause: new TypeError(`got ${describeJsonType(parsed)}`) },
+      );
+    }
+    return parsed as Record<string, string>;
   }
 
   private write(data: Record<string, string>): void {
@@ -85,7 +111,9 @@ export class JsonFileStaffDirectory implements StaffDirectory {
 
   async get(staffCode: string): Promise<string | null> {
     const key = assertStaffCode(staffCode);
-    return this.read()[key] ?? null;
+    const email = this.read()[key] ?? null;
+    // list と対称に、返す email が非nullなら検証する(汚染値を下流に流さない)。
+    return email === null ? null : assertEmail(email);
   }
 
   async set(staffCode: string, email: string): Promise<void> {

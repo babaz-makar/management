@@ -41,7 +41,8 @@ export async function neonGetEmail(
   const rows = (await sql`
     SELECT email FROM staff_directory WHERE staff_code = ${key}
   `) as Record<string, string>[];
-  return rows.length > 0 ? rows[0].email : null;
+  // neonListEntries と対称に、返す email が非nullなら検証する(汚染値を下流に流さない)。
+  return rows.length > 0 ? assertEmail(rows[0].email) : null;
 }
 
 /**

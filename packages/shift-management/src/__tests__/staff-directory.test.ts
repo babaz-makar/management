@@ -256,6 +256,106 @@ describe("JsonFileStaffDirectory: list は保存値を検証する(汚染デー�
   });
 });
 
+describe("JsonFileStaffDirectory: read() の top-level 型検査(配列/null/プリミティブを弾く)", () => {
+  let dir: string;
+  let filePath: string;
+  let store: StaffDirectory;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "staff-dir-"));
+    filePath = join(dir, "staff.json");
+    store = new JsonFileStaffDirectory(filePath);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("ファイル内容が空配列 [] のとき get は throw する", async () => {
+    writeFileSync(filePath, "[]", "utf-8");
+    await expect(store.get("A0187")).rejects.toThrow();
+  });
+
+  it("ファイル内容が空配列 [] のとき set は throw する", async () => {
+    writeFileSync(filePath, "[]", "utf-8");
+    await expect(store.set("A0187", "a@example.com")).rejects.toThrow();
+  });
+
+  it("ファイル内容が空配列 [] のとき list は throw する", async () => {
+    writeFileSync(filePath, "[]", "utf-8");
+    await expect(store.list()).rejects.toThrow();
+  });
+
+  it("配列JSON [{...}] に set したとき throw し、既存ファイル内容を上書き消去しない", async () => {
+    // Arrange: 配列の名前付きプロパティは JSON.stringify で捨てられ静かに消える形
+    const arrayJson = JSON.stringify([{ A0187: "x@y.z" }], null, 2);
+    writeFileSync(filePath, arrayJson, "utf-8");
+    // Act / Assert: throw し、ファイルは書き換えられない
+    await expect(store.set("B0002", "b@example.com")).rejects.toThrow();
+    expect(readFileSync(filePath, "utf-8")).toBe(arrayJson);
+  });
+
+  it("ファイル内容が null のとき get は throw する(生 TypeError でなく文脈付きエラー)", async () => {
+    writeFileSync(filePath, "null", "utf-8");
+    await expect(store.get("A0187")).rejects.toThrow(
+      /staff directory JSON/,
+    );
+  });
+
+  it("ファイル内容が数値プリミティブ 42 のとき get は throw する", async () => {
+    writeFileSync(filePath, "42", "utf-8");
+    await expect(store.get("A0187")).rejects.toThrow(/staff directory JSON/);
+  });
+
+  it("ファイル内容が文字列プリミティブ のとき list は throw する", async () => {
+    writeFileSync(filePath, '"hello"', "utf-8");
+    await expect(store.list()).rejects.toThrow(/staff directory JSON/);
+  });
+});
+
+describe("JsonFileStaffDirectory: get は戻り値の email を検証する(list と対称)", () => {
+  let dir: string;
+  let filePath: string;
+  let store: StaffDirectory;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "staff-dir-"));
+    filePath = join(dir, "staff.json");
+    store = new JsonFileStaffDirectory(filePath);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("手編集で不正な email が入った storage に対し get は throw する", async () => {
+    writeFileSync(
+      filePath,
+      JSON.stringify({ A0187: "not-an-email" }, null, 2),
+      "utf-8",
+    );
+    await expect(store.get("A0187")).rejects.toThrow();
+  });
+
+  it("正常な email なら get はそのまま返す", async () => {
+    writeFileSync(
+      filePath,
+      JSON.stringify({ A0187: "ok@example.com" }, null, 2),
+      "utf-8",
+    );
+    expect(await store.get("A0187")).toBe("ok@example.com");
+  });
+
+  it("未登録(null)は検証を挟まず null を返す", async () => {
+    writeFileSync(
+      filePath,
+      JSON.stringify({ A0187: "ok@example.com" }, null, 2),
+      "utf-8",
+    );
+    expect(await store.get("B0002")).toBeNull();
+  });
+});
+
 describe("JsonFileStaffDirectory: delete の no-op と set の部分書き込み防止", () => {
   let dir: string;
   let filePath: string;
