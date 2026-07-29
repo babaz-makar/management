@@ -60,6 +60,12 @@ export {
   neonSetEmail,
   neonListEntries,
   neonDeleteEntry,
+  lookupSlackUserIdByEmail,
+  interpretSlackLookupResponse,
+  resolveRefreshTokenByEmail,
+  describeResolutionFailure,
+  reconcileJobcanForAllStaff,
+  describeStaffSkipReason,
 } from "./server";
 export type {
   PipelineResult,
@@ -72,4 +78,14 @@ export type {
   JobcanReconcileResult,
   JobcanDayResult,
   JobcanDayExecution,
+  SlackFetch,
+  TokenResolution,
+  TokenResolutionSuccess,
+  TokenResolutionFailure,
+  TokenResolutionFailureReason,
+  TokenResolverDeps,
+  JobcanReconcileAllResult,
+  JobcanReconcileAllDeps,
+  JobcanStaffWarning,
+  JobcanStaffSkipReason,
 } from "./server";

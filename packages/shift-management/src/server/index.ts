@@ -25,6 +25,35 @@ export { JsonFileTokenStore } from "./token-store";
 export type { TokenStore } from "./token-store";
 
 export {
+  lookupSlackUserIdByEmail,
+  interpretSlackLookupResponse,
+} from "./slack-directory";
+export type { SlackFetch } from "./slack-directory";
+
+export {
+  resolveRefreshTokenByEmail,
+  describeResolutionFailure,
+} from "./jobcan-token-resolver";
+export type {
+  TokenResolution,
+  TokenResolutionSuccess,
+  TokenResolutionFailure,
+  TokenResolutionFailureReason,
+  TokenResolverDeps,
+} from "./jobcan-token-resolver";
+
+export {
+  reconcileJobcanForAllStaff,
+  describeStaffSkipReason,
+} from "./jobcan-reconcile-all";
+export type {
+  JobcanReconcileAllResult,
+  JobcanReconcileAllDeps,
+  JobcanStaffWarning,
+  JobcanStaffSkipReason,
+} from "./jobcan-reconcile-all";
+
+export {
   JsonFileStaffDirectory,
   assertStaffCode,
   assertEmail,
