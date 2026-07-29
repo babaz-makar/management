@@ -66,6 +66,8 @@ export {
   describeResolutionFailure,
   reconcileJobcanForAllStaff,
   describeStaffSkipReason,
+  runJobcanImport,
+  formatJobcanImportSummary,
 } from "./server";
 export type {
   PipelineResult,
@@ -88,4 +90,10 @@ export type {
   JobcanReconcileAllDeps,
   JobcanStaffWarning,
   JobcanStaffSkipReason,
+  JobcanImportFile,
+  JobcanImportOptions,
+  JobcanImportFileError,
+  JobcanImportSummary,
+  JobcanImportResult,
+  JobcanImportDeps,
 } from "./server";

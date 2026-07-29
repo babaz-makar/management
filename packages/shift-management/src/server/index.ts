@@ -53,6 +53,16 @@ export type {
   JobcanStaffSkipReason,
 } from "./jobcan-reconcile-all";
 
+export { runJobcanImport, formatJobcanImportSummary } from "./jobcan-import";
+export type {
+  JobcanImportFile,
+  JobcanImportOptions,
+  JobcanImportFileError,
+  JobcanImportSummary,
+  JobcanImportResult,
+  JobcanImportDeps,
+} from "./jobcan-import";
+
 export {
   JsonFileStaffDirectory,
   assertStaffCode,
