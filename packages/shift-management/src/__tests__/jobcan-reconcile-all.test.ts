@@ -227,6 +227,65 @@ describe("reconcileJobcanForAllStaff: 一人の失敗を他人に波及させな
     expect(aWarn!.message).not.toContain("rt-A");
   });
 
+  it("staffDirectory.get が throw(=DB障害)しても他人は処理され、その人だけ directory_error に隔離", async () => {
+    const calls: ReconcileCall[] = [];
+    // B の名簿引き当てだけ throw、A は正常に email を返す。
+    const throwingDirectory: StaffDirectory = {
+      async get(staffCode) {
+        if (staffCode === "B0002") throw new Error("db connection reset");
+        return staffCode === "A0187" ? "a@example.com" : null;
+      },
+      async set() {},
+      async list(): Promise<StaffDirectoryEntry[]> {
+        return [];
+      },
+      async delete() {},
+    };
+    const deps: JobcanReconcileAllDeps = {
+      staffDirectory: throwingDirectory,
+      resolveToken: async (email) => ({ ok: true, refreshToken: "rt-A", calendarId: email }),
+      reconcile: fakeReconcile(calls),
+    };
+    const entries = [entry("A0187", "2026-08-01"), entry("B0002", "2026-08-01")];
+
+    const result = await reconcileJobcanForAllStaff(entries, deps);
+
+    // B が throw しても A は最後まで処理される(全体 reject しない)。
+    expect(result.reconciled.map((r) => r.staffCode)).toEqual(["A0187"]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].staffCode).toBe("A0187");
+    // B だけ directory_error の warning に隔離(email 未登録=null とは別扱い)。
+    const bWarn = result.warnings.find((w) => w.staffCode === "B0002");
+    expect(bWarn).toBeDefined();
+    expect(bWarn!.reason).toBe("directory_error");
+  });
+
+  it("directory_error の warning は staffCode を含み token を含まない", async () => {
+    const throwingDirectory: StaffDirectory = {
+      async get() {
+        throw new Error("db down");
+      },
+      async set() {},
+      async list(): Promise<StaffDirectoryEntry[]> {
+        return [];
+      },
+      async delete() {},
+    };
+    const deps: JobcanReconcileAllDeps = {
+      staffDirectory: throwingDirectory,
+      resolveToken: async (email) => ({ ok: true, refreshToken: "rt-secret", calendarId: email }),
+      reconcile: fakeReconcile([]),
+    };
+
+    const result = await reconcileJobcanForAllStaff([entry("A0187", "2026-08-01")], deps);
+
+    const aWarn = result.warnings.find((w) => w.staffCode === "A0187");
+    expect(aWarn).toBeDefined();
+    expect(aWarn!.reason).toBe("directory_error");
+    expect(aWarn!.message).toContain("A0187");
+    expect(aWarn!.message).not.toContain("rt-secret");
+  });
+
   it("resolveToken が throw(=Slack API障害)しても他人を巻き込まず、その人だけ warning 化", async () => {
     const calls: ReconcileCall[] = [];
     const deps = makeDeps({
@@ -282,6 +341,14 @@ describe("describeStaffSkipReason: reason→日本語(2-7用)", () => {
   it("resolve_error", () => {
     const m = describeStaffSkipReason("resolve_error", { staffCode: "B0002", email: "b@example.com" });
     expect(m).toContain("B0002");
+  });
+  it("directory_error は staffCode を含み token を含まない", () => {
+    const m = describeStaffSkipReason("directory_error", {
+      staffCode: "B0002",
+      email: null,
+    });
+    expect(m).toContain("B0002");
+    expect(m).not.toContain("rt-");
   });
   it("reconcile_error は staffCode を含み token を含まない", () => {
     const m = describeStaffSkipReason("reconcile_error", {

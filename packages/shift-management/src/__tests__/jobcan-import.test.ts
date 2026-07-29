@@ -405,67 +405,11 @@ describe("runJobcanImport: 空・全損の境界", () => {
   });
 });
 
-describe("runJobcanImport: reconcile-all が万一 throw しても fileErrors を保全(二重防御)", () => {
-  it("reconcile-all が throw しても全損せず fileErrors を保全し reconcileError を載せる", async () => {
-    const calls: ReconcileCall[] = [];
-    // staffDirectory.get が throw する = reconcileJobcanForAllStaff 自体が throw する経路。
-    const deps: JobcanImportDeps = {
-      staffDirectory: {
-        async get() {
-          throw new Error("directory backend down");
-        },
-        async set() {},
-        async list(): Promise<StaffDirectoryEntry[]> {
-          return [];
-        },
-        async delete() {},
-      },
-      resolveToken: okResolve({ "a@example.com": "rt-A" }),
-      reconcile: fakeReconcile(calls),
-    };
-    const files = [
-      { fileName: "no-month.xlsx", rows: makeRows("A0187", "試 太郎", ONE_DAY) }, // fileError
-      file("馬場(A0187) 2026年08月度.xlsx", "A0187"), // entries あり → reconcile-all へ
-    ];
-
-    const result = await runJobcanImport(files, deps, DRY);
-
-    // fileErrors は握りつぶさず保全されている。
-    expect(result.fileErrors).toHaveLength(1);
-    expect(result.fileErrors[0].reason).toBe("filename_parse_error");
-    // reconcile 失敗も結果に載る(全損しない)。
-    expect(result.reconcileError).toBeDefined();
-    expect(result.reconcile.reconciled).toEqual([]);
-    expect(result.summary.staffCount).toBe(0);
-    // 生の reconcile は記録されない(get で落ちたため)。
-    expect(calls).toHaveLength(0);
-  });
-
-  it("reconcileError は formatJobcanImportSummary で可視化される", async () => {
-    const calls: ReconcileCall[] = [];
-    const deps: JobcanImportDeps = {
-      staffDirectory: {
-        async get() {
-          throw new Error("directory backend down");
-        },
-        async set() {},
-        async list(): Promise<StaffDirectoryEntry[]> {
-          return [];
-        },
-        async delete() {},
-      },
-      resolveToken: okResolve({ "a@example.com": "rt-A" }),
-      reconcile: fakeReconcile(calls),
-    };
-    const result = await runJobcanImport(
-      [file("馬場(A0187) 2026年08月度.xlsx", "A0187")],
-      deps,
-      DRY,
-    );
-    const text = formatJobcanImportSummary(result);
-    expect(text).toContain("突合");
-  });
-});
+// 二重防御(reconcile-all 自体が throw した場合)は、per-staff 例外隔離を全レイヤに入れた結果、
+// staffDirectory.get の throw では発火しなくなった(=その人だけ directory_error 隔離)。
+// 「reconcile-all 自体が throw」する経路は現状ほぼ発生しないため、専用ファイルで
+// reconcileJobcanForAllStaff をモックして本物の throw を注入し検証する。
+// → jobcan-import-reconcile-error.test.ts
 
 describe("formatJobcanImportSummary: 人間可読・秘密非包含", () => {
   it("fileErrors と warning を文言化し、refreshToken を含めない", async () => {

@@ -5,10 +5,11 @@
  * 処理: staffCode の集合 → 各人の email(StaffDirectory)→ refreshToken/calendarId
  * (resolver 経由)を解決 → 解決できた人だけ reconcile 実行、できない人は warning 収集。
  *
- * 最重要ガード: 解決失敗(未登録/未在籍/未連携/解決時例外)は **その人をスキップして
+ * 最重要ガード: 解決失敗(未登録/名簿例外/未在籍/未連携/解決時例外)は **その人をスキップして
  * warning に積む** だけ。reconcile は常にその人自身の refreshToken と
  * calendarId(=email)で呼ぶため、失敗した人が他人のカレンダーに影響することはない。
- * resolveToken の例外もその人の warning に隔離し、他人の処理を止めない(fail-loud だが波及させない)。
+ * 名簿 get・resolveToken・reconcile 本体いずれの例外もその人の warning に隔離し、
+ * 他人の処理を止めない(fail-loud だが波及させない)。全レイヤで対称。
  */
 import type { ShiftEntry } from "../types";
 import type { StaffDirectory } from "./staff-directory";
@@ -22,6 +23,7 @@ import type { JobcanReconcileResult } from "./jobcan-pipeline";
  */
 export type JobcanStaffSkipReason =
   | "email_not_registered"
+  | "directory_error"
   | "slack_not_found"
   | "google_not_linked"
   | "resolve_error"
@@ -76,6 +78,8 @@ export function describeStaffSkipReason(
   switch (reason) {
     case "email_not_registered":
       return `${ctx.staffCode} は email 未登録です(スタッフ名簿に追加してください)`;
+    case "directory_error":
+      return `${ctx.staffCode} の名簿引き当てに失敗しました(DB障害の可能性)。この人はスキップし、他の人の処理は継続しました`;
     case "slack_not_found":
       return `${who} は Slack ワークスペースに見つかりません(未在籍の可能性)`;
     case "google_not_linked":
@@ -108,7 +112,15 @@ async function resolveOneStaff(
   | { ok: true; refreshToken: string; calendarId: string }
   | { ok: false; warning: JobcanStaffWarning }
 > {
-  const email = await deps.staffDirectory.get(staffCode);
+  let email: string | null;
+  try {
+    email = await deps.staffDirectory.get(staffCode);
+  } catch (err) {
+    // 名簿引き当ての例外(DB障害等)はその人だけ warning に隔離(他人を止めない)。
+    // get が null を返す「未登録(email_not_registered)」とは別 reason に分ける。
+    const base = warn(staffCode, null, "directory_error");
+    return { ok: false, warning: { ...base, message: `${base.message}: ${errorDetail(err)}` } };
+  }
   if (email === null) {
     return { ok: false, warning: warn(staffCode, null, "email_not_registered") };
   }
