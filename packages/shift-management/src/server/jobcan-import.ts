@@ -46,8 +46,15 @@ export interface JobcanImportOptions {
 /** パース/突合で弾いたファイル(握りつぶさず構造化して残す)。 */
 export interface JobcanImportFileError {
   fileName: string;
-  /** 機械可読カテゴリ。 */
-  reason: "filename_parse_error" | "sheet_parse_error" | "staff_code_mismatch";
+  /**
+   * 機械可読カテゴリ。unexpected_error は collectEntries の二重防御 try/catch が
+   * 拾った想定外例外(そのファイルだけ隔離し他ファイルは継続)。
+   */
+  reason:
+    | "filename_parse_error"
+    | "sheet_parse_error"
+    | "staff_code_mismatch"
+    | "unexpected_error";
   /** 人間可読メッセージ(秘密情報は含めない)。 */
   message: string;
 }
@@ -165,7 +172,29 @@ function importOneFile(f: JobcanImportFile): ImportedFile {
   return { ok: true, entries };
 }
 
-/** 全ファイルを走査し、通ったファイルの entries を集約する。失敗は隔離する。 */
+/** 想定外例外で隔離するファイルの文言(秘密を含みうる生 message は載せない)。 */
+const UNEXPECTED_FILE_MESSAGE =
+  "予期しないエラーによりこのファイルの取込を中止しました(他ファイルの処理は継続しました)";
+
+/** 壊れたファイルオブジェクトでも fileName 取得で全損しないよう安全に読む。 */
+function safeFileName(f: JobcanImportFile): string {
+  try {
+    return typeof f.fileName === "string" ? f.fileName : "(不明なファイル)";
+  } catch {
+    return "(不明なファイル)";
+  }
+}
+
+/**
+ * 全ファイルを走査し、通ったファイルの entries を集約する。失敗は隔離する。
+ *
+ * 全損防止(M-1):
+ *   - entries の連結は spread-push(`push(...arr)`)を使わずループ push にする。
+ *     巨大 entries(実測12万超)で `push(...arr)` は RangeError を投げ、1ファイルが
+ *     全バッチを道連れに reject するため、その原因そのものを除去する。
+ *   - さらにファイル処理を try/catch で隔離し、万一 throw してもそのファイルだけ
+ *     unexpected_error に隔離して他ファイルの処理を継続する(波及ゼロを二重に担保)。
+ */
 function collectEntries(files: JobcanImportFile[]): {
   entries: ShiftEntry[];
   fileErrors: JobcanImportFileError[];
@@ -175,12 +204,20 @@ function collectEntries(files: JobcanImportFile[]): {
   const fileErrors: JobcanImportFileError[] = [];
   let importedFiles = 0;
   for (const f of files) {
-    const result = importOneFile(f);
-    if (result.ok) {
-      entries.push(...result.entries);
-      importedFiles += 1;
-    } else {
-      fileErrors.push(result.error);
+    try {
+      const result = importOneFile(f);
+      if (result.ok) {
+        for (const e of result.entries) entries.push(e); // spread-push は使わない(RangeError回避)
+        importedFiles += 1;
+      } else {
+        fileErrors.push(result.error);
+      }
+    } catch {
+      fileErrors.push({
+        fileName: safeFileName(f),
+        reason: "unexpected_error",
+        message: UNEXPECTED_FILE_MESSAGE,
+      });
     }
   }
   return { entries, fileErrors, importedFiles };

@@ -12,11 +12,16 @@ import type { ShiftEntry } from "../types";
 const MONTH = "2026-08";
 
 function entry(staffCode: string, date: string): ShiftEntry {
+  return entryM(staffCode, date, MONTH);
+}
+
+/** sourceMonth を明示する版(複数月バケツテスト用)。 */
+function entryM(staffCode: string, date: string, sourceMonth: string): ShiftEntry {
   return {
     jobcanShiftId: `${staffCode}:${date}`,
     staffCode,
     staffName: "試 太郎",
-    sourceMonth: MONTH,
+    sourceMonth,
     shift: { date, startTime: "09:00", endTime: "18:00" },
   };
 }
@@ -306,6 +311,172 @@ describe("reconcileJobcanForAllStaff: 一人の失敗を他人に波及させな
     const bWarn = result.warnings.find((w) => w.staffCode === "B0002");
     expect(bWarn).toBeDefined();
     expect(bWarn!.reason).toBe("resolve_error");
+  });
+});
+
+describe("reconcileJobcanForAllStaff(M-2): 集約キーは staffCode+sourceMonth", () => {
+  interface MonthCall {
+    staffCode: string;
+    sourceMonth: string;
+    calendarId: string;
+    dates: string[];
+  }
+
+  /** 実パイプライン同様、entries に複数 sourceMonth が混在したら throw する fake。 */
+  function fakeReconcileSingleMonth(calls: MonthCall[]) {
+    return async (
+      entries: ShiftEntry[],
+      _refreshToken: string,
+      calendarId: string,
+    ): Promise<JobcanReconcileResult> => {
+      const months = new Set(entries.map((e) => e.sourceMonth));
+      if (months.size > 1) {
+        throw new Error("mixed sourceMonth: 1か月分ずつ渡してください");
+      }
+      const sourceMonth = entries[0].sourceMonth;
+      calls.push({
+        staffCode: entries[0].staffCode,
+        sourceMonth,
+        calendarId,
+        dates: entries.map((e) => e.shift.date),
+      });
+      return { staffCode: entries[0].staffCode, calendarId, sourceMonth, dryRun: false, days: [] };
+    };
+  }
+
+  it("同一 staffCode の 2ヶ月ぶんは別バケツになり両月とも reconcile される(月混在 throw しない)", async () => {
+    const calls: MonthCall[] = [];
+    const deps: JobcanReconcileAllDeps = {
+      staffDirectory: fakeDirectory({ A0187: "a@example.com" }),
+      resolveToken: async (email) => ({ ok: true, refreshToken: "rt-A", calendarId: email }),
+      reconcile: fakeReconcileSingleMonth(calls),
+    };
+    const entries = [
+      entryM("A0187", "2026-08-01", "2026-08"),
+      entryM("A0187", "2026-09-01", "2026-09"),
+      entryM("A0187", "2026-08-02", "2026-08"),
+    ];
+
+    const result = await reconcileJobcanForAllStaff(entries, deps);
+
+    // 2バケツ(8月・9月)、両方 reconcile 成功。warning なし。
+    expect(result.warnings).toEqual([]);
+    expect(result.reconciled).toHaveLength(2);
+    expect(result.reconciled.map((r) => r.sourceMonth).sort()).toEqual(["2026-08", "2026-09"]);
+    expect(calls).toHaveLength(2);
+    // 各バケツは単一 staffCode かつ単一 sourceMonth。8月には 8月の日だけ入る。
+    const aug = calls.find((c) => c.sourceMonth === "2026-08")!;
+    expect(aug.dates.sort()).toEqual(["2026-08-01", "2026-08-02"]);
+    const sep = calls.find((c) => c.sourceMonth === "2026-09")!;
+    expect(sep.dates).toEqual(["2026-09-01"]);
+    expect(calls.every((c) => c.staffCode === "A0187")).toBe(true);
+  });
+
+  it("別人・別月が混在しても各バケツは単一 staffCode+単一 sourceMonth(取り違えなし)", async () => {
+    const calls: MonthCall[] = [];
+    const deps: JobcanReconcileAllDeps = {
+      staffDirectory: fakeDirectory({ A0187: "a@example.com", B0002: "b@example.com" }),
+      resolveToken: async (email) => ({
+        ok: true,
+        refreshToken: email === "a@example.com" ? "rt-A" : "rt-B",
+        calendarId: email,
+      }),
+      reconcile: fakeReconcileSingleMonth(calls),
+    };
+    const entries = [
+      entryM("A0187", "2026-08-01", "2026-08"),
+      entryM("B0002", "2026-08-01", "2026-08"),
+      entryM("A0187", "2026-09-01", "2026-09"),
+    ];
+
+    const result = await reconcileJobcanForAllStaff(entries, deps);
+
+    // 3バケツ: A/8, B/8, A/9。どのバケツも単一人物・単一月。
+    expect(result.reconciled).toHaveLength(3);
+    expect(calls).toHaveLength(3);
+    const key = (c: MonthCall) => `${c.staffCode}::${c.sourceMonth}`;
+    expect(calls.map(key).sort()).toEqual([
+      "A0187::2026-08",
+      "A0187::2026-09",
+      "B0002::2026-08",
+    ]);
+    // A のバケツに B の calendar が混ざらない(別人取り違えなし)。
+    const aCalls = calls.filter((c) => c.staffCode === "A0187");
+    expect(aCalls.every((c) => c.calendarId === "a@example.com")).toBe(true);
+    const bCalls = calls.filter((c) => c.staffCode === "B0002");
+    expect(bCalls.every((c) => c.calendarId === "b@example.com")).toBe(true);
+  });
+
+  it("per-staff warning は月ごとに出て message に sourceMonth を含む", async () => {
+    const deps = makeDeps({
+      directory: {}, // 全員 email 未登録 → 月ごとに warning
+      resolve: async () => {
+        throw new Error("should not resolve");
+      },
+      calls: [],
+    });
+    const entries = [
+      entryM("A0187", "2026-08-01", "2026-08"),
+      entryM("A0187", "2026-09-01", "2026-09"),
+    ];
+
+    const result = await reconcileJobcanForAllStaff(entries, deps);
+
+    // 同一人物でも月ごとに warning が出る。
+    expect(result.warnings).toHaveLength(2);
+    expect(result.warnings.map((w) => w.sourceMonth).sort()).toEqual(["2026-08", "2026-09"]);
+    expect(result.warnings.every((w) => w.staffCode === "A0187")).toBe(true);
+    // message に月が分かる情報が入る。
+    expect(result.warnings.some((w) => w.message.includes("2026-08"))).toBe(true);
+    expect(result.warnings.some((w) => w.message.includes("2026-09"))).toBe(true);
+  });
+});
+
+describe("reconcileJobcanForAllStaff(M-3): 上流 err.message を warning に逐語転写しない", () => {
+  const SECRET = "postgres://user:PASSWORD@host:5432/db";
+
+  it("directory_error の warning に上流例外の秘密文字列が含まれない", async () => {
+    const throwingDirectory: StaffDirectory = {
+      async get() {
+        throw new Error(`connection failed ${SECRET}`);
+      },
+      async set() {},
+      async list(): Promise<StaffDirectoryEntry[]> {
+        return [];
+      },
+      async delete() {},
+    };
+    const deps: JobcanReconcileAllDeps = {
+      staffDirectory: throwingDirectory,
+      resolveToken: async (email) => ({ ok: true, refreshToken: "rt", calendarId: email }),
+      reconcile: fakeReconcile([]),
+    };
+
+    const result = await reconcileJobcanForAllStaff([entry("A0187", "2026-08-01")], deps);
+
+    const w = result.warnings.find((x) => x.reason === "directory_error");
+    expect(w).toBeDefined();
+    expect(w!.message).toContain("A0187"); // 誰かは分かる
+    expect(w!.message).not.toContain("PASSWORD"); // 秘密は載らない
+    expect(w!.message).not.toContain(SECRET);
+  });
+
+  it("reconcile_error の warning に上流例外の秘密文字列が含まれない", async () => {
+    const deps: JobcanReconcileAllDeps = {
+      staffDirectory: fakeDirectory({ A0187: "a@example.com" }),
+      resolveToken: async (email) => ({ ok: true, refreshToken: "rt-A", calendarId: email }),
+      reconcile: async () => {
+        throw new Error(`calendar backend ${SECRET}`);
+      },
+    };
+
+    const result = await reconcileJobcanForAllStaff([entry("A0187", "2026-08-01")], deps);
+
+    const w = result.warnings.find((x) => x.reason === "reconcile_error");
+    expect(w).toBeDefined();
+    expect(w!.message).toContain("A0187");
+    expect(w!.message).not.toContain("PASSWORD");
+    expect(w!.message).not.toContain(SECRET);
   });
 });
 

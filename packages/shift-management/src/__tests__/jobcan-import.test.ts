@@ -23,10 +23,16 @@ interface DayInput {
 /**
  * parseJobcanSheet が読める最小の行列を作る。
  * row0=タイトル / row3=identity(name,_,staffCode,_,affiliation) / row8="日付"ヘッダ / row9..=データ。
+ * monthNum を渡すと月度タイトル・日付セルの月を差し替える(複数月テスト用)。
  */
-function makeRows(staffCode: string, name: string, days: DayInput[]): string[][] {
+function makeRows(
+  staffCode: string,
+  name: string,
+  days: DayInput[],
+  monthNum = 8,
+): string[][] {
   const rows: string[][] = [
-    ["2026年8月度"],
+    [`2026年${monthNum}月度`],
     [],
     [],
     [name, "", staffCode, "", "ホール"],
@@ -38,7 +44,7 @@ function makeRows(staffCode: string, name: string, days: DayInput[]): string[][]
   ];
   for (const d of days) {
     const r = ["", "", "", "", "", "", ""];
-    r[0] = `8/${d.day}`;
+    r[0] = `${monthNum}/${d.day}`;
     r[5] = d.start;
     r[6] = d.end;
     rows.push(r);
@@ -48,8 +54,13 @@ function makeRows(staffCode: string, name: string, days: DayInput[]): string[][]
 
 const ONE_DAY: DayInput[] = [{ day: 1, start: "09:00", end: "18:00" }];
 
-function file(fileName: string, staffCode: string, days: DayInput[] = ONE_DAY): JobcanImportFile {
-  return { fileName, rows: makeRows(staffCode, "試 太郎", days), sheetName: "sheet1" };
+function file(
+  fileName: string,
+  staffCode: string,
+  days: DayInput[] = ONE_DAY,
+  monthNum = 8,
+): JobcanImportFile {
+  return { fileName, rows: makeRows(staffCode, "試 太郎", days, monthNum), sheetName: "sheet1" };
 }
 
 // ---- fake deps ------------------------------------------------------------
@@ -402,6 +413,93 @@ describe("runJobcanImport: 空・全損の境界", () => {
     expect(result.summary.erroredFiles).toBe(2);
     expect(calls).toHaveLength(0);
     expect(result.reconcile.reconciled).toEqual([]);
+  });
+});
+
+describe("runJobcanImport(M-1): 巨大 entries・不正ファイルでも全損させない", () => {
+  it("1ファイルが極端に多い entries(RangeError 級)でも他ファイルが処理され全損しない", async () => {
+    const calls: ReconcileCall[] = [];
+    const deps = makeDeps({
+      directory: { A0187: "a@example.com", B0002: "b@example.com" },
+      resolve: okResolve({ "a@example.com": "rt-A", "b@example.com": "rt-B" }),
+      calls,
+    });
+    // 同一日(8/1)を 13万行 → 13万 entries。旧 spread-push なら collectEntries で
+    // RangeError(Maximum call stack size exceeded)になり runJobcanImport 全体が全損する。
+    const hugeDays: DayInput[] = Array.from({ length: 130000 }, () => ({
+      day: 1,
+      start: "09:00",
+      end: "18:00",
+    }));
+    const files = [
+      file("馬場(A0187) 2026年08月度.xlsx", "A0187", hugeDays),
+      file("佐藤(B0002) 2026年08月度.xlsx", "B0002", [{ day: 2, start: "10:00", end: "19:00" }]),
+    ];
+
+    const result = await runJobcanImport(files, deps, DRY);
+
+    // 全損せず巨大ファイルも集約され、他ファイル(B)も処理される。
+    expect(result.fileErrors).toEqual([]);
+    expect(result.summary.totalEntries).toBe(130001);
+    expect(result.reconcile.reconciled.map((r) => r.staffCode).sort()).toEqual([
+      "A0187",
+      "B0002",
+    ]);
+  });
+
+  it("collectEntries 段で throw する壊れたファイルはそのファイルだけ隔離し他ファイルは継続", async () => {
+    const calls: ReconcileCall[] = [];
+    const deps = makeDeps({
+      directory: { A0187: "a@example.com" },
+      resolve: okResolve({ "a@example.com": "rt-A" }),
+      calls,
+    });
+    // fileName ゲッターが throw する壊れたファイル。importOneFile の catch も
+    // f.fileName を再参照して throw するため、collectEntries の二重防御 try/catch が受ける。
+    const evil: JobcanImportFile = {
+      get fileName(): string {
+        throw new Error("boom-SECRET-xyz");
+      },
+      rows: makeRows("A0187", "試 太郎", ONE_DAY),
+    };
+    const files = [evil, file("馬場(A0187) 2026年08月度.xlsx", "A0187")];
+
+    const result = await runJobcanImport(files, deps, DRY);
+
+    // 壊れたファイルは unexpected_error に隔離、正常ファイルは reconcile される(全損しない)。
+    expect(result.fileErrors).toHaveLength(1);
+    expect(result.fileErrors[0].reason).toBe("unexpected_error");
+    // 生の例外メッセージ(秘密を含みうる)は載せない。
+    expect(result.fileErrors[0].message).not.toContain("boom-SECRET-xyz");
+    expect(result.reconcile.reconciled.map((r) => r.staffCode)).toEqual(["A0187"]);
+  });
+});
+
+describe("runJobcanImport(M-2): 同一人物の複数月を別バケツで両方 reconcile", () => {
+  it("同一 staffCode の 8月度と9月度ファイルは両月とも reconcile され summary が両月を数える", async () => {
+    const calls: ReconcileCall[] = [];
+    const deps = makeDeps({
+      directory: { A0187: "a@example.com" },
+      resolve: okResolve({ "a@example.com": "rt-A" }),
+      calls,
+    });
+    const files = [
+      file("馬場(A0187) 2026年08月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }], 8),
+      file("馬場(A0187) 2026年09月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }], 9),
+    ];
+
+    const result = await runJobcanImport(files, deps, DRY);
+
+    // 両月とも reconcile(2バケツ)。月混在 throw で全滅しない。
+    expect(result.fileErrors).toEqual([]);
+    expect(calls).toHaveLength(2);
+    const months = result.reconcile.reconciled.map((r) => r.sourceMonth).sort();
+    expect(months).toEqual(["2026-08", "2026-09"]);
+    // 全員 A0187(同一人物・別月)。
+    expect(result.reconcile.reconciled.every((r) => r.staffCode === "A0187")).toBe(true);
+    // summary が両月ぶんを数える。
+    expect(result.summary.staffCount).toBe(2);
+    expect(result.summary.totalEntries).toBe(2);
   });
 });
 
