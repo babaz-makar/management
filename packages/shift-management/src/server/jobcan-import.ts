@@ -76,6 +76,12 @@ export interface JobcanImportResult {
   fileErrors: JobcanImportFileError[];
   /** reconcileJobcanForAllStaff の結果(per-staff warning 含む)。 */
   reconcile: JobcanReconcileAllResult;
+  /**
+   * 二重防御: reconcile-all は per-staff で例外隔離済み(通常は throw しない)だが、
+   * 万一 reconcile-all 自体が throw した場合の可読メッセージ(秘密情報は含めない)。
+   * 正常時は undefined。set されていても fileErrors は保全されている。
+   */
+  reconcileError?: string;
   /** 集計。 */
   summary: JobcanImportSummary;
 }
@@ -196,9 +202,36 @@ function countPlan(reconcile: JobcanReconcileAllResult): {
   return { totalCreates, totalDeletes };
 }
 
+/** collectEntries の結果と reconcile 結果から集計サマリを組む純関数。 */
+function buildSummary(
+  files: JobcanImportFile[],
+  fileErrors: JobcanImportFileError[],
+  importedFiles: number,
+  entries: ShiftEntry[],
+  reconcile: JobcanReconcileAllResult,
+  dryRun: boolean,
+): JobcanImportSummary {
+  const { totalCreates, totalDeletes } = countPlan(reconcile);
+  return {
+    dryRun,
+    totalFiles: files.length,
+    importedFiles,
+    erroredFiles: fileErrors.length,
+    totalEntries: entries.length,
+    staffCount: reconcile.reconciled.length,
+    totalCreates,
+    totalDeletes,
+    warningCount: reconcile.warnings.length,
+  };
+}
+
 /**
  * 複数ファイルをパース＋突合し、集約 entries を reconcileJobcanForAllStaff に渡す。
  * 失敗ファイルは fileErrors に、解決失敗スタッフは reconcile.warnings に隔離する。
+ *
+ * 二重防御方針: reconcile-all は per-staff で例外隔離済み(全体 reject しない設計)。
+ * それでも万一 reconcile-all 自体が throw した場合は、再 throw せず、集約済み fileErrors を
+ * 保全したまま reconcileError に失敗を構造化して返す(=全損させない/握りつぶさない)。
  */
 export async function runJobcanImport(
   files: JobcanImportFile[],
@@ -213,22 +246,23 @@ export async function runJobcanImport(
     reconcile: (e, refreshToken, calendarId) =>
       deps.reconcile(e, refreshToken, calendarId, options),
   };
-  const reconcile = await reconcileJobcanForAllStaff(entries, reconcileDeps);
 
-  const { totalCreates, totalDeletes } = countPlan(reconcile);
-  const summary: JobcanImportSummary = {
-    dryRun: options.dryRun,
-    totalFiles: files.length,
-    importedFiles,
-    erroredFiles: fileErrors.length,
-    totalEntries: entries.length,
-    staffCount: reconcile.reconciled.length,
-    totalCreates,
-    totalDeletes,
-    warningCount: reconcile.warnings.length,
-  };
-
-  return { fileErrors, reconcile, summary };
+  try {
+    const reconcile = await reconcileJobcanForAllStaff(entries, reconcileDeps);
+    return {
+      fileErrors,
+      reconcile,
+      summary: buildSummary(files, fileErrors, importedFiles, entries, reconcile, options.dryRun),
+    };
+  } catch (err: unknown) {
+    const reconcile: JobcanReconcileAllResult = { reconciled: [], warnings: [] };
+    return {
+      fileErrors,
+      reconcile,
+      reconcileError: getErrorMessage(err),
+      summary: buildSummary(files, fileErrors, importedFiles, entries, reconcile, options.dryRun),
+    };
+  }
 }
 
 /** サマリ1行目(件数の要約)。 */
@@ -264,7 +298,15 @@ export function formatJobcanImportSummary(result: JobcanImportResult): string {
     }
   }
 
-  if (result.fileErrors.length === 0 && result.reconcile.warnings.length === 0) {
+  if (result.reconcileError !== undefined) {
+    lines.push("", "■ 突合処理エラー(全体)", `- ${result.reconcileError}`);
+  }
+
+  if (
+    result.fileErrors.length === 0 &&
+    result.reconcile.warnings.length === 0 &&
+    result.reconcileError === undefined
+  ) {
     lines.push("", "エラー・警告はありません。");
   }
 

@@ -298,6 +298,20 @@ describe("runJobcanImport: dryRun と集計", () => {
     expect(calls[0].options.dryRun).toBe(true);
   });
 
+  it("reconcileRemovals:true が reconcile まで伝わる(破壊的削除スイッチの裏取り)", async () => {
+    const calls: ReconcileCall[] = [];
+    const deps = makeDeps({
+      directory: { A0187: "a@example.com" },
+      resolve: okResolve({ "a@example.com": "rt-A" }),
+      calls,
+    });
+    await runJobcanImport([file("馬場(A0187) 2026年08月度.xlsx", "A0187")], deps, {
+      dryRun: true,
+      reconcileRemovals: true,
+    });
+    expect(calls[0].options.reconcileRemovals).toBe(true);
+  });
+
   it("dryRun:false も伝わり、totalCreates が plan から集計される", async () => {
     const calls: ReconcileCall[] = [];
     const deps = makeDeps({
@@ -341,6 +355,115 @@ describe("runJobcanImport: 失敗は握りつぶさず構造化して返す", ()
       reason: "email_not_registered",
     });
     expect(result.summary.erroredFiles).toBe(1);
+  });
+});
+
+describe("runJobcanImport: 空・全損の境界", () => {
+  it("空ファイル配列は fileErrors 空・reconcile 呼ばれない・summary 妥当", async () => {
+    const calls: ReconcileCall[] = [];
+    const deps = makeDeps({
+      directory: { A0187: "a@example.com" },
+      resolve: okResolve({ "a@example.com": "rt-A" }),
+      calls,
+    });
+
+    const result = await runJobcanImport([], deps, DRY);
+
+    expect(result.fileErrors).toEqual([]);
+    expect(calls).toHaveLength(0);
+    expect(result.reconcile.reconciled).toEqual([]);
+    expect(result.summary).toMatchObject({
+      totalFiles: 0,
+      importedFiles: 0,
+      erroredFiles: 0,
+      totalEntries: 0,
+      staffCount: 0,
+      totalCreates: 0,
+      totalDeletes: 0,
+      warningCount: 0,
+    });
+  });
+
+  it("全ファイル error(importedFiles=0)なら reconcile は呼ばれない", async () => {
+    const calls: ReconcileCall[] = [];
+    const deps = makeDeps({
+      directory: { A0187: "a@example.com" },
+      resolve: okResolve({ "a@example.com": "rt-A" }),
+      calls,
+    });
+    const files = [
+      { fileName: "こわれ1.xlsx", rows: makeRows("A0187", "試 太郎", ONE_DAY) },
+      { fileName: "こわれ2.xlsx", rows: makeRows("A0187", "試 太郎", ONE_DAY) },
+    ];
+
+    const result = await runJobcanImport(files, deps, DRY);
+
+    expect(result.summary.importedFiles).toBe(0);
+    expect(result.summary.erroredFiles).toBe(2);
+    expect(calls).toHaveLength(0);
+    expect(result.reconcile.reconciled).toEqual([]);
+  });
+});
+
+describe("runJobcanImport: reconcile-all が万一 throw しても fileErrors を保全(二重防御)", () => {
+  it("reconcile-all が throw しても全損せず fileErrors を保全し reconcileError を載せる", async () => {
+    const calls: ReconcileCall[] = [];
+    // staffDirectory.get が throw する = reconcileJobcanForAllStaff 自体が throw する経路。
+    const deps: JobcanImportDeps = {
+      staffDirectory: {
+        async get() {
+          throw new Error("directory backend down");
+        },
+        async set() {},
+        async list(): Promise<StaffDirectoryEntry[]> {
+          return [];
+        },
+        async delete() {},
+      },
+      resolveToken: okResolve({ "a@example.com": "rt-A" }),
+      reconcile: fakeReconcile(calls),
+    };
+    const files = [
+      { fileName: "no-month.xlsx", rows: makeRows("A0187", "試 太郎", ONE_DAY) }, // fileError
+      file("馬場(A0187) 2026年08月度.xlsx", "A0187"), // entries あり → reconcile-all へ
+    ];
+
+    const result = await runJobcanImport(files, deps, DRY);
+
+    // fileErrors は握りつぶさず保全されている。
+    expect(result.fileErrors).toHaveLength(1);
+    expect(result.fileErrors[0].reason).toBe("filename_parse_error");
+    // reconcile 失敗も結果に載る(全損しない)。
+    expect(result.reconcileError).toBeDefined();
+    expect(result.reconcile.reconciled).toEqual([]);
+    expect(result.summary.staffCount).toBe(0);
+    // 生の reconcile は記録されない(get で落ちたため)。
+    expect(calls).toHaveLength(0);
+  });
+
+  it("reconcileError は formatJobcanImportSummary で可視化される", async () => {
+    const calls: ReconcileCall[] = [];
+    const deps: JobcanImportDeps = {
+      staffDirectory: {
+        async get() {
+          throw new Error("directory backend down");
+        },
+        async set() {},
+        async list(): Promise<StaffDirectoryEntry[]> {
+          return [];
+        },
+        async delete() {},
+      },
+      resolveToken: okResolve({ "a@example.com": "rt-A" }),
+      reconcile: fakeReconcile(calls),
+    };
+    const result = await runJobcanImport(
+      [file("馬場(A0187) 2026年08月度.xlsx", "A0187")],
+      deps,
+      DRY,
+    );
+    const text = formatJobcanImportSummary(result);
+    expect(text).toContain("突合");
   });
 });
 

@@ -15,12 +15,17 @@ import type { StaffDirectory } from "./staff-directory";
 import type { TokenResolution } from "./jobcan-token-resolver";
 import type { JobcanReconcileResult } from "./jobcan-pipeline";
 
-/** スキップ理由。email→token の失敗(resolver reason)＋その前後の失敗を合わせた union。 */
+/**
+ * スキップ理由。email→token の失敗(resolver reason)＋その前後の失敗を合わせた union。
+ * resolve_error は解決段(token取得)の例外、reconcile_error は突合段(カレンダーI/O本体)の例外。
+ * どちらも「その人だけ隔離し他人へ波及させない」ための reason。
+ */
 export type JobcanStaffSkipReason =
   | "email_not_registered"
   | "slack_not_found"
   | "google_not_linked"
-  | "resolve_error";
+  | "resolve_error"
+  | "reconcile_error";
 
 export interface JobcanStaffWarning {
   staffCode: string;
@@ -77,6 +82,8 @@ export function describeStaffSkipReason(
       return `${who} は Google カレンダー未連携です`;
     case "resolve_error":
       return `${ctx.staffCode} のトークン解決に失敗しました(Slack API 障害の可能性)`;
+    case "reconcile_error":
+      return `${ctx.staffCode}(${who})のカレンダー突合に失敗しました(Google カレンダー API 障害の可能性)。この人はスキップし、他の人の処理は継続しました`;
   }
 }
 
@@ -86,6 +93,11 @@ function warn(
   reason: JobcanStaffSkipReason,
 ): JobcanStaffWarning {
   return { staffCode, email, reason, message: describeStaffSkipReason(reason, { staffCode, email }) };
+}
+
+/** err の可読メッセージだけ取り出す(生スタックや token を warning に載せないため)。 */
+function errorDetail(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 /** 1人ぶんを解決する。成功なら token/calendarId、失敗なら warning を返す(例外は隔離)。 */
@@ -130,9 +142,17 @@ export async function reconcileJobcanForAllStaff(
       continue;
     }
     // reconcile は常にその人自身の token/calendarId とその人の entries だけで呼ぶ。
-    reconciled.push(
-      await deps.reconcile(staffEntries, resolved.refreshToken, resolved.calendarId),
-    );
+    // 突合本体(カレンダーI/O)が throw しても、resolveToken 隔離と対称に
+    // その人だけ warning へ隔離し、残りのスタッフの処理は継続する(全体を止めない)。
+    try {
+      reconciled.push(
+        await deps.reconcile(staffEntries, resolved.refreshToken, resolved.calendarId),
+      );
+    } catch (err) {
+      // calendarId は design 上その人の email。token 等の秘密は載せず err.message のみ添える。
+      const base = warn(staffCode, resolved.calendarId, "reconcile_error");
+      warnings.push({ ...base, message: `${base.message}: ${errorDetail(err)}` });
+    }
   }
 
   return { reconciled, warnings };

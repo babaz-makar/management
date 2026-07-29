@@ -189,6 +189,44 @@ describe("reconcileJobcanForAllStaff: 一人の失敗を他人に波及させな
     ]);
   });
 
+  it("reconcile 本体が throw(=カレンダーI/O障害)しても他人は処理され、その人だけ reconcile_error に隔離", async () => {
+    const calls: ReconcileCall[] = [];
+    const deps: JobcanReconcileAllDeps = {
+      staffDirectory: fakeDirectory({ A0187: "a@example.com", B0002: "b@example.com" }),
+      resolveToken: async (email) => ({
+        ok: true,
+        refreshToken: email === "a@example.com" ? "rt-A" : "rt-B",
+        calendarId: email,
+      }),
+      // A の reconcile だけ throw、B は正常に記録する。
+      reconcile: async (entries, refreshToken, calendarId) => {
+        const staffCode = entries[0].staffCode;
+        if (staffCode === "A0187") throw new Error("calendar api down");
+        calls.push({
+          staffCode,
+          refreshToken,
+          calendarId,
+          dates: entries.map((e) => e.shift.date),
+        });
+        return { staffCode, calendarId, sourceMonth: MONTH, dryRun: false, days: [] };
+      },
+    };
+    const entries = [entry("A0187", "2026-08-01"), entry("B0002", "2026-08-01")];
+
+    const result = await reconcileJobcanForAllStaff(entries, deps);
+
+    // A が throw しても B は最後まで処理される(全体 reject しない)。
+    expect(result.reconciled.map((r) => r.staffCode)).toEqual(["B0002"]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].staffCode).toBe("B0002");
+    // A だけ reconcile_error の warning に隔離。
+    const aWarn = result.warnings.find((w) => w.staffCode === "A0187");
+    expect(aWarn).toBeDefined();
+    expect(aWarn!.reason).toBe("reconcile_error");
+    // 秘密情報(token)は warning 文言に載らない。
+    expect(aWarn!.message).not.toContain("rt-A");
+  });
+
   it("resolveToken が throw(=Slack API障害)しても他人を巻き込まず、その人だけ warning 化", async () => {
     const calls: ReconcileCall[] = [];
     const deps = makeDeps({
@@ -244,5 +282,13 @@ describe("describeStaffSkipReason: reason→日本語(2-7用)", () => {
   it("resolve_error", () => {
     const m = describeStaffSkipReason("resolve_error", { staffCode: "B0002", email: "b@example.com" });
     expect(m).toContain("B0002");
+  });
+  it("reconcile_error は staffCode を含み token を含まない", () => {
+    const m = describeStaffSkipReason("reconcile_error", {
+      staffCode: "A0187",
+      email: "a@example.com",
+    });
+    expect(m).toContain("A0187");
+    expect(m).not.toContain("rt-");
   });
 });
