@@ -55,12 +55,18 @@ export {
   JsonFileStaffDirectory,
   assertStaffCode,
   assertEmail,
+  ensureStaffDirectoryTable,
+  neonGetEmail,
+  neonSetEmail,
+  neonListEntries,
+  neonDeleteEntry,
 } from "./server";
 export type {
   PipelineResult,
   TokenStore,
   StaffDirectory,
   StaffDirectoryEntry,
+  SqlTag,
   JobcanCalendarPort,
   JobcanReconcileOptions,
   JobcanReconcileResult,

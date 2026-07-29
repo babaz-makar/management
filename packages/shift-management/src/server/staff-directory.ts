@@ -19,8 +19,11 @@ export interface StaffDirectoryEntry {
   email: string;
 }
 
-/** 英字1文字 + 数字4桁(例 A0187 / z9999)。大文字小文字どちらも許容。 */
-const STAFF_CODE_PATTERN = /^[A-Za-z]\d{4}$/;
+/**
+ * 大文字英字1文字 + 数字4桁(例 A0187)。
+ * ジョブカン由来コードは常に大文字始まりのため、小文字は不正として弾く(自動正規化しない)。
+ */
+const STAFF_CODE_PATTERN = /^[A-Z]\d{4}$/;
 /** 簡易 email 形式(x@y.z 相当。ローカル部・ドメイン部あり、ドメインにドット必須)。 */
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -31,7 +34,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function assertStaffCode(staffCode: string): string {
   if (!STAFF_CODE_PATTERN.test(staffCode)) {
     throw new Error(
-      `invalid staffCode: "${staffCode}" (expected 1 letter + 4 digits, e.g. A0187)`,
+      `invalid staffCode: "${staffCode}" (expected 1 uppercase letter + 4 digits, e.g. A0187)`,
     );
   }
   return staffCode;
@@ -55,12 +58,22 @@ export function assertEmail(email: string): string {
 export class JsonFileStaffDirectory implements StaffDirectory {
   constructor(private filePath: string) {}
 
+  /**
+   * ファイルを読み取る。
+   * - 未作成(初回)は空扱い {} を返す。
+   * - 存在するが読み取り不能/JSONパース不能は throw(fail-loud)。
+   *   握りつぶして {} を返すと、続く set が全件を黙って上書き消去する事故になるため。
+   */
   private read(): Record<string, string> {
     if (!existsSync(this.filePath)) return {};
+    const raw = readFileSync(this.filePath, "utf-8");
     try {
-      return JSON.parse(readFileSync(this.filePath, "utf-8"));
-    } catch {
-      return {};
+      return JSON.parse(raw) as Record<string, string>;
+    } catch (cause) {
+      throw new Error(
+        `failed to parse staff directory JSON at ${this.filePath}`,
+        { cause },
+      );
     }
   }
 
@@ -85,9 +98,10 @@ export class JsonFileStaffDirectory implements StaffDirectory {
 
   async list(): Promise<StaffDirectoryEntry[]> {
     const data = this.read();
+    // 保存値も無検証で下流(allowlist生成)に流さない。汚染データは fail-loud で弾く。
     return Object.keys(data).map((staffCode) => ({
-      staffCode,
-      email: data[staffCode],
+      staffCode: assertStaffCode(staffCode),
+      email: assertEmail(data[staffCode]),
     }));
   }
 

@@ -30,3 +30,12 @@ export {
   assertEmail,
 } from "./staff-directory";
 export type { StaffDirectory, StaffDirectoryEntry } from "./staff-directory";
+
+export {
+  ensureStaffDirectoryTable,
+  neonGetEmail,
+  neonSetEmail,
+  neonListEntries,
+  neonDeleteEntry,
+} from "./staff-directory-neon-core";
+export type { SqlTag } from "./staff-directory-neon-core";

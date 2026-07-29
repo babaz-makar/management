@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -108,6 +108,14 @@ describe("JsonFileStaffDirectory: staffCode の書式検証(fail-loud)", () => {
     await expect(store.set("AB012", "a@example.com")).rejects.toThrow();
   });
 
+  it("小文字始まり(a0187)の set は throw する(大文字前提・自動正規化しない)", async () => {
+    await expect(store.set("a0187", "a@example.com")).rejects.toThrow();
+  });
+
+  it("小文字境界(z9999)の set は throw する", async () => {
+    await expect(store.set("z9999", "z@example.com")).rejects.toThrow();
+  });
+
   it("不正な staffCode の get も throw する(推測して null を返さない)", async () => {
     await expect(store.get("A1")).rejects.toThrow();
   });
@@ -165,13 +173,124 @@ describe("JsonFileStaffDirectory: staffCode の境界(正常系)", () => {
     expect(await store.get("A0187")).toBe("a@example.com");
   });
 
-  it("小文字始まり z9999 は通る", async () => {
-    await store.set("z9999", "z@example.com");
-    expect(await store.get("z9999")).toBe("z@example.com");
+  it("大文字境界 Z9999 は通る", async () => {
+    await store.set("Z9999", "z@example.com");
+    expect(await store.get("Z9999")).toBe("z@example.com");
   });
 
   it("数字オール0 A0000 は通る", async () => {
     await store.set("A0000", "a@example.com");
     expect(await store.get("A0000")).toBe("a@example.com");
+  });
+});
+
+describe("JsonFileStaffDirectory: 破損JSONの握りつぶし禁止(fail-loud)", () => {
+  let dir: string;
+  let filePath: string;
+  let store: StaffDirectory;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "staff-dir-"));
+    filePath = join(dir, "staff.json");
+    store = new JsonFileStaffDirectory(filePath);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("破損JSON(パース不能)に対して get は throw する", async () => {
+    // Arrange: 壊れた JSON を仕込む
+    writeFileSync(filePath, "{ not valid json", "utf-8");
+    // Act / Assert
+    await expect(store.get("A0187")).rejects.toThrow();
+  });
+
+  it("破損JSONに対して list は throw する", async () => {
+    writeFileSync(filePath, "{ broken", "utf-8");
+    await expect(store.list()).rejects.toThrow();
+  });
+
+  it("破損JSONに対して set は throw し、既存の壊れた内容を上書き消去しない", async () => {
+    // Arrange: 壊れた JSON(=空{}に握りつぶすと全件消える状況)
+    const broken = "{ broken content";
+    writeFileSync(filePath, broken, "utf-8");
+    // Act / Assert: throw し、ファイルは書き換えられない
+    await expect(store.set("A0187", "a@example.com")).rejects.toThrow();
+    expect(readFileSync(filePath, "utf-8")).toBe(broken);
+  });
+});
+
+describe("JsonFileStaffDirectory: list は保存値を検証する(汚染データを流さない)", () => {
+  let dir: string;
+  let filePath: string;
+  let store: StaffDirectory;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "staff-dir-"));
+    filePath = join(dir, "staff.json");
+    store = new JsonFileStaffDirectory(filePath);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("手編集で不正な staffCode が混入していると list は throw する", async () => {
+    // Arrange: 不正キー(小文字)を直接書き込む
+    writeFileSync(
+      filePath,
+      JSON.stringify({ a0187: "a@example.com" }, null, 2),
+      "utf-8",
+    );
+    await expect(store.list()).rejects.toThrow();
+  });
+
+  it("手編集で不正な email が混入していると list は throw する", async () => {
+    writeFileSync(
+      filePath,
+      JSON.stringify({ A0187: "not-an-email" }, null, 2),
+      "utf-8",
+    );
+    await expect(store.list()).rejects.toThrow();
+  });
+});
+
+describe("JsonFileStaffDirectory: delete の no-op と set の部分書き込み防止", () => {
+  let dir: string;
+  let filePath: string;
+  let store: StaffDirectory;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "staff-dir-"));
+    filePath = join(dir, "staff.json");
+    store = new JsonFileStaffDirectory(filePath);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("有効書式だが未登録の staffCode の delete は throw せず no-op", async () => {
+    await store.set("A0187", "a@example.com");
+    // Act: 未登録の有効コードを delete
+    await expect(store.delete("B0002")).resolves.toBeUndefined();
+    // Assert: 既存データは消えない
+    expect(await store.get("A0187")).toBe("a@example.com");
+  });
+
+  it("email 検証失敗時の set はファイルに部分書き込みしない(ファイル未作成)", async () => {
+    // Act / Assert: 検証を書き込み前に実施しているので throw し、ファイルは作られない
+    await expect(store.set("A0187", "bad-email")).rejects.toThrow();
+    expect(existsSync(filePath)).toBe(false);
+  });
+
+  it("staffCode 検証失敗時の set は既存データを書き換えない", async () => {
+    // Arrange: 正常に1件保存
+    await store.set("A0187", "a@example.com");
+    const before = readFileSync(filePath, "utf-8");
+    // Act / Assert: 不正コードで set → throw、ファイル不変
+    await expect(store.set("bad", "b@example.com")).rejects.toThrow();
+    expect(readFileSync(filePath, "utf-8")).toBe(before);
   });
 });
