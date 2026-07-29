@@ -23,3 +23,10 @@ export type {
 
 export { JsonFileTokenStore } from "./token-store";
 export type { TokenStore } from "./token-store";
+
+export {
+  JsonFileStaffDirectory,
+  assertStaffCode,
+  assertEmail,
+} from "./staff-directory";
+export type { StaffDirectory, StaffDirectoryEntry } from "./staff-directory";

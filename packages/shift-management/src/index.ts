@@ -52,10 +52,15 @@ export {
   formatResultMessage,
   runJobcanReconcile,
   JsonFileTokenStore,
+  JsonFileStaffDirectory,
+  assertStaffCode,
+  assertEmail,
 } from "./server";
 export type {
   PipelineResult,
   TokenStore,
+  StaffDirectory,
+  StaffDirectoryEntry,
   JobcanCalendarPort,
   JobcanReconcileOptions,
   JobcanReconcileResult,
