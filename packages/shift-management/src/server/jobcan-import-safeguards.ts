@@ -160,6 +160,46 @@ export function validateUploadLimits(
   return { ok: true };
 }
 
+/**
+ * 中継段(import-ui)の body 全体サイズの早期拒否上限。
+ * import の合計上限(DEFAULT_UPLOAD_LIMITS.maxTotalBytes=20MB)に multipart の
+ * オーバーヘッド(boundary・パートヘッダ・フィールド名)の余裕 1MB を足した値。
+ * 中継はここで Content-Length を先に見て弾き、arrayBuffer 先読みでの
+ * メモリ全展開(認証通過後のメモリ枯渇DoS)を防ぐ。権威は import 側の上限に残す。
+ */
+export const MAX_RELAY_BODY_BYTES =
+  DEFAULT_UPLOAD_LIMITS.maxTotalBytes + 1 * 1024 * 1024;
+
+/** checkContentLength の結果。超過のみ理由付きで拒否する。 */
+export type ContentLengthResult =
+  | { ok: true }
+  | { ok: false; reason: "too_large" };
+
+/** 非負整数のみ(前後空白は呼び出し側で trim 済み)を Content-Length とみなす。 */
+const CONTENT_LENGTH_PATTERN = /^\d+$/;
+
+/**
+ * Content-Length ヘッダで body 全体サイズを早期判定する(M2)。
+ *
+ * - 明確に上限超過の数値 → too_large(この時点で拒否し body を展開させない)。
+ * - 欠落(null)・非数値・負値・空文字 → 「不明」として ok(通す)。
+ *   Content-Length は詐称・欠落しうるため、これ単体を権威にしない。通した場合も
+ *   import 側の validateUploadLimits(実 file.size)が最終の権威として弾く。
+ *   誤って「巨大を許可」する方向へは倒さない(不明は通すが、判る巨大値は必ず拒否)。
+ * - 境界値ちょうどは許可、超過のみ拒否。
+ */
+export function checkContentLength(
+  header: string | null,
+  maxBytes: number,
+): ContentLengthResult {
+  if (typeof header !== "string") return { ok: true };
+  const trimmed = header.trim();
+  if (!CONTENT_LENGTH_PATTERN.test(trimmed)) return { ok: true };
+  const size = Number(trimmed);
+  // 桁あふれ級でも Number は有限の巨大値を返すため、超過側へ正しく倒れる。
+  return size > maxBytes ? { ok: false, reason: "too_large" } : { ok: true };
+}
+
 /** 取込ルートで必須の env 名(値=秘密は扱わない)。 */
 export const REQUIRED_IMPORT_ENV_VARS = [
   "DATABASE_URL",

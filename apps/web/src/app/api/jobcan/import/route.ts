@@ -186,6 +186,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       await notifySlack(botToken, notifyChannel, message);
     }
 
+    // PII 露出の前提(staff/route.ts・import-ui/route.ts と同一トーン):
+    // このレスポンスは Vercel Deployment Protection 下の管理画面向け。
+    // warnings は jobcan-reconcile-all の warning(staff email を含む)を素通しする。
+    // fileErrors / conversionErrors / message も staff 名やファイル名など個人特定に
+    // つながりうる情報を含みうる。保護(infra 層)が主ゲートである前提で許容する。
+    // この保護前提が外れる変更(公開エンドポイント化・認証方式変更等)の際は、
+    // ここで返す PII をマスク/除去するか再検討すること。
     return NextResponse.json({
       dryRun,
       summary: result.summary,

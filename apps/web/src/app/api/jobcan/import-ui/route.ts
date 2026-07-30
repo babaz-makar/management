@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkContentLength, MAX_RELAY_BODY_BYTES } from "@management/shift-management";
 import { POST as importPost } from "../import/route";
 
 /**
@@ -27,6 +28,19 @@ export async function POST(req: NextRequest): Promise<Response> {
   // secret 未設定なら "Bearer undefined" を作らず即 500(設定不備)。値は出さない。
   if (typeof secret !== "string" || secret.length === 0) {
     return NextResponse.json({ error: "server misconfigured" }, { status: 500 });
+  }
+
+  // M2: arrayBuffer 先読みの**前**に Content-Length で早期サイズ拒否する。
+  // 認証通過後でも巨大 body(例500MB)をここで弾き、メモリ全展開(枯渇DoS)を防ぐ。
+  // 上限 MAX_RELAY_BODY_BYTES は import 側の合計上限(20MB)+ multipart 余裕。
+  // Content-Length は欠落/詐称しうるため単体を権威にしない(不明は通し、判る巨大値のみ拒否)。
+  // 通した場合も import 側の validateUploadLimits(実 file.size)が最終の権威。
+  const sizeCheck = checkContentLength(
+    req.headers.get("content-length"),
+    MAX_RELAY_BODY_BYTES,
+  );
+  if (!sizeCheck.ok) {
+    return NextResponse.json({ error: "payload too large" }, { status: 413 });
   }
 
   // ボディを1度だけ読み、同じ内容で転送用リクエストを組む(body は一度しか読めない)。

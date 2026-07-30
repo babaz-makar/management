@@ -59,14 +59,17 @@ export {
   coerceCellText,
   verifyImportAuth,
   validateUploadLimits,
+  checkContentLength,
   missingImportEnvVars,
   DEFAULT_UPLOAD_LIMITS,
+  MAX_RELAY_BODY_BYTES,
   REQUIRED_IMPORT_ENV_VARS,
 } from "./jobcan-import-safeguards";
 export type {
   ImportAuthResult,
   UploadLimits,
   UploadLimitResult,
+  ContentLengthResult,
 } from "./jobcan-import-safeguards";
 
 export { runJobcanImport, formatJobcanImportSummary } from "./jobcan-import";

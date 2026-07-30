@@ -78,6 +78,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   try {
     // 既存に「別 email」があり overwrite 指定が無ければ 409(UI が上書き確認を出せる)。
+    // existingEmail は PII を返すが、この API は Deployment Protection 下の管理画面
+    // 前提(冒頭 docstring 参照)。保護前提が外れる変更時はこの email 返却も再検討。
     const existing = await directory.get(parsed.staffCode);
     if (existing !== null && existing !== parsed.email && !parsed.overwrite) {
       return NextResponse.json(
