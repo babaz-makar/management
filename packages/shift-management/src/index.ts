@@ -68,6 +68,9 @@ export {
   describeStaffSkipReason,
   runJobcanImport,
   formatJobcanImportSummary,
+  sanitizeFileName,
+  resolveDryRun,
+  coerceCellText,
 } from "./server";
 export type {
   PipelineResult,

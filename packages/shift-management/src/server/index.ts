@@ -53,6 +53,12 @@ export type {
   JobcanStaffSkipReason,
 } from "./jobcan-reconcile-all";
 
+export {
+  sanitizeFileName,
+  resolveDryRun,
+  coerceCellText,
+} from "./jobcan-import-safeguards";
+
 export { runJobcanImport, formatJobcanImportSummary } from "./jobcan-import";
 export type {
   JobcanImportFile,
