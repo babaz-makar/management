@@ -76,6 +76,8 @@ export {
   missingImportEnvVars,
   DEFAULT_UPLOAD_LIMITS,
   REQUIRED_IMPORT_ENV_VARS,
+  describeImportReason,
+  findSimilarStaffNames,
 } from "./server";
 export type {
   PipelineResult,
@@ -107,4 +109,7 @@ export type {
   ImportAuthResult,
   UploadLimits,
   UploadLimitResult,
+  StaffNameCandidate,
+  StaffNameMatchType,
+  SimilarStaffMatch,
 } from "./server";

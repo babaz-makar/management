@@ -94,3 +94,12 @@ export {
   neonDeleteEntry,
 } from "./staff-directory-neon-core";
 export type { SqlTag } from "./staff-directory-neon-core";
+
+export { describeImportReason } from "./import-reason-describe";
+
+export { findSimilarStaffNames } from "./staff-name-similarity";
+export type {
+  StaffNameCandidate,
+  StaffNameMatchType,
+  SimilarStaffMatch,
+} from "./staff-name-similarity";
