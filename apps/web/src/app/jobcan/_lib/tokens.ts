@@ -10,8 +10,8 @@ export const COLORS = {
   danger: "#c0392b",
   dangerBg: "#fdecea",
   dangerBorder: "#e6b0aa",
-  /** 警告(スキップ・要注意だが致命ではない)。 */
-  warning: "#b9770e",
+  /** 警告(スキップ・要注意だが致命ではない)。warningBg(#fef5e7)上で WCAG AA(4.5:1)を満たす濃さ。 */
+  warning: "#8f5b00",
   warningBg: "#fef5e7",
   warningBorder: "#f5cba7",
   /** 成功・通常(既定)。 */

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { COLORS } from "../_lib/tokens";
+import { useDialogFocus } from "../_lib/use-dialog-focus";
 
 interface ApplyConfirmDialogProps {
   /** 危険確認(削除>0 or 取り違え)なら二段確認(削除件数の明示 + 追加チェック)。 */
@@ -37,13 +38,21 @@ export function ApplyConfirmDialog({
 }: ApplyConfirmDialogProps) {
   const [agreed, setAgreed] = useState(false);
   const [dangerAgreed, setDangerAgreed] = useState(false);
+  // busy 中は Escape での離脱を無効化(反映処理中の誤操作を避ける)。
+  const dialogRef = useDialogFocus<HTMLDivElement>(() => {
+    if (!busy) onCancel();
+  });
 
   const canConfirm = agreed && (!danger || dangerAgreed) && !busy;
   const accent = danger ? COLORS.danger : COLORS.text;
 
   return (
-    <div style={OVERLAY_STYLE} role="dialog" aria-modal="true">
+    <div style={OVERLAY_STYLE} role="presentation">
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
         style={{
           background: "#fff",
           borderRadius: 8,
@@ -51,6 +60,7 @@ export function ApplyConfirmDialog({
           maxWidth: 480,
           width: "100%",
           border: `2px solid ${danger ? COLORS.danger : COLORS.border}`,
+          outline: "none",
         }}
       >
         <h3 style={{ marginTop: 0, color: accent }}>

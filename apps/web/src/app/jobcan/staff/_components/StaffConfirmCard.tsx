@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { findSimilarStaffNames } from "@management/shift-management/ui";
 import type { StaffDirectoryEntry } from "@management/shift-management";
 import { isValidStaffCode, type SlackCheckResult } from "../_lib/staff-client";
@@ -31,6 +31,13 @@ export function StaffConfirmCard({
 }: StaffConfirmCardProps) {
   const [staffCode, setStaffCode] = useState(initialStaffCode);
   const [email, setEmail] = useState("");
+
+  // ?code= 流入時のみ staffCode 欄を埋める(取込→名簿の中核導線)。
+  // useState 初期化子はマウント時のみ評価されるため、マウント後に届く prop を同期する。
+  // 空 code では上書きしない=ユーザーが手編集した値を prop 変化で消さない。
+  useEffect(() => {
+    if (initialStaffCode) setStaffCode(initialStaffCode);
+  }, [initialStaffCode]);
   const [slackResult, setSlackResult] = useState<SlackCheckResult | null>(null);
   const [agreed, setAgreed] = useState(false);
 

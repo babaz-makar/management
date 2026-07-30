@@ -1,0 +1,22 @@
+/*
+ * アプリ全体の最小グローバルスタイル。
+ *
+ * 目的: OS のダークモードでブラウザが body 背景を暗色化し、明背景前提で作った
+ * パレット(_lib/tokens.ts の text#111 等)が「黒地に黒文字」で消える事故を防ぐ。
+ * パレットは明背景前提で作り込まれているため、配色を light 固定にするのが最小差分で根治。
+ *
+ * color-scheme: light でフォームコントロール等のネイティブ配色も明に固定する。
+ */
+:root {
+  color-scheme: light;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: #fff;
+  color: #111;
+}

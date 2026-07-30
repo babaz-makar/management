@@ -1,6 +1,7 @@
 "use client";
 
 import { COLORS } from "../../_lib/tokens";
+import { useDialogFocus } from "../../_lib/use-dialog-focus";
 
 interface ConfirmDialogProps {
   title: string;
@@ -35,9 +36,17 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const accent = danger ? COLORS.danger : COLORS.text;
+  // busy 中は Escape での離脱を無効化(削除/上書き処理中の誤操作を避ける)。
+  const dialogRef = useDialogFocus<HTMLDivElement>(() => {
+    if (!busy) onCancel();
+  });
   return (
-    <div style={OVERLAY_STYLE} role="dialog" aria-modal="true">
+    <div style={OVERLAY_STYLE} role="presentation">
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
         style={{
           background: "#fff",
           borderRadius: 8,
@@ -45,6 +54,7 @@ export function ConfirmDialog({
           maxWidth: 440,
           width: "100%",
           border: `2px solid ${danger ? COLORS.danger : COLORS.border}`,
+          outline: "none",
         }}
       >
         <h3 style={{ marginTop: 0, color: accent }}>{title}</h3>
