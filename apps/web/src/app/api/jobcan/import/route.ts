@@ -9,6 +9,9 @@ import {
   runJobcanReconcile,
   sanitizeFileName,
   resolveDryRun,
+  verifyImportAuth,
+  validateUploadLimits,
+  missingImportEnvVars,
   type JobcanImportFile,
   type JobcanImportDeps,
   type JobcanImportResult,
@@ -25,21 +28,6 @@ export const runtime = "nodejs";
 interface ConversionError {
   fileName: string;
   message: string;
-}
-
-/** 起動時に必須の env。欠落があれば名前だけ返す(値=秘密は出さない)。 */
-function missingEnvVars(): string[] {
-  const required = [
-    "DATABASE_URL",
-    "SLACK_BOT_TOKEN",
-    "GOOGLE_CLIENT_ID",
-    "GOOGLE_CLIENT_SECRET",
-    "GOOGLE_REDIRECT_URI",
-  ];
-  return required.filter((name) => {
-    const v = process.env[name];
-    return typeof v !== "string" || v.length === 0;
-  });
 }
 
 /** 実インフラで runJobcanImport の deps を組む(Neon 名簿 + Slack/Token 解決 + Google カレンダー)。 */
@@ -138,7 +126,21 @@ async function notifySlack(botToken: string, channel: string, text: string): Pro
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const missing = missingEnvVars();
+  // CRITICAL-1: 認証を全経路の最前段に置く(dry-run でも必須)。
+  // env 検証・formData パースより前。秘密値はレスポンスに一切出さない。
+  const auth = verifyImportAuth(
+    req.headers.get("authorization"),
+    process.env.JOBCAN_IMPORT_SECRET,
+  );
+  if (!auth.ok) {
+    // secret_not_configured はサーバー設定不備(500)、unauthorized は 401。
+    // いずれも一般化した文言のみで秘密は出さない。
+    return auth.reason === "secret_not_configured"
+      ? NextResponse.json({ error: "server misconfigured" }, { status: 500 })
+      : NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const missing = missingImportEnvVars(process.env);
   if (missing.length > 0) {
     return NextResponse.json(
       { error: "server misconfigured", missing },
@@ -156,6 +158,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const files = collectFiles(formData);
     if (files.length === 0) {
       return NextResponse.json({ error: "no files uploaded" }, { status: 400 });
+    }
+
+    // HIGH-1: arrayBuffer 展開の前に file.size だけで上限チェック(メモリ枯渇DoS防止)。
+    const limitCheck = validateUploadLimits(files);
+    if (!limitCheck.ok) {
+      return NextResponse.json(
+        { error: "payload too large", reason: limitCheck.reason },
+        { status: 413 },
+      );
     }
 
     const dryRun = resolveDryRun(

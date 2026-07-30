@@ -8,6 +8,8 @@
  *   それ以外(undefined/未知値/型破り)は必ず dry-run 側へ倒す。
  */
 
+import { timingSafeEqual } from "crypto";
+
 /** 除去後に空になったファイル名のフォールバック(fileError.message にも載る前提)。 */
 const FALLBACK_FILE_NAME = "(不明なファイル)";
 
@@ -55,6 +57,129 @@ export function resolveDryRun(
   const applyRequested = input.apply === true; // 厳密 true 以外は全て false 扱い
   const shouldApply = envEnabled && applyRequested;
   return !shouldApply;
+}
+
+/**
+ * 取込ルートの共有シークレット認証の結果(CRITICAL-1)。
+ * reason は列挙。秘密(expectedSecret/token)は戻り値・例外に一切載せない。
+ */
+export type ImportAuthResult =
+  | { ok: true }
+  | { ok: false; reason: "secret_not_configured" | "unauthorized" };
+
+/** Authorization ヘッダの想定プレフィックス。 */
+const BEARER_PREFIX = "Bearer ";
+
+/**
+ * 取込ルートを共有シークレット(Bearer)で認証する(CRITICAL-1 匿名POST封じ)。
+ *
+ * - expectedSecret が未設定(undefined/空文字) → secret_not_configured(**fail-closed**。
+ *   シークレット未設定のサーバーは全拒否。書込側へ倒れる穴を作らない)。
+ * - authHeader が "Bearer <token>" 形式で token が expectedSecret と一致 → ok。
+ *   比較は Node 組込 crypto の timingSafeEqual(定数時間比較)。バイト長が違うと
+ *   timingSafeEqual が throw するため、先にバッファ長を見て不一致なら unauthorized。
+ * - それ以外(ヘッダ欠落・"Bearer " 無し・不一致) → unauthorized。
+ *
+ * dry-run でも呼び出し側で必ず最前段に置くこと(認証は全経路必須)。
+ */
+export function verifyImportAuth(
+  authHeader: string | null,
+  expectedSecret: string | undefined,
+): ImportAuthResult {
+  if (typeof expectedSecret !== "string" || expectedSecret.length === 0) {
+    return { ok: false, reason: "secret_not_configured" };
+  }
+  if (typeof authHeader !== "string" || !authHeader.startsWith(BEARER_PREFIX)) {
+    return { ok: false, reason: "unauthorized" };
+  }
+  const token = authHeader.slice(BEARER_PREFIX.length);
+  const tokenBuf = Buffer.from(token);
+  const expectedBuf = Buffer.from(expectedSecret);
+  // バイト長不一致は timingSafeEqual が throw する。長さの有無だけは早期リターンで
+  // 弾く(長さはタイミング以前に判る情報なので秘密漏洩にはならない)。
+  if (tokenBuf.length !== expectedBuf.length) {
+    return { ok: false, reason: "unauthorized" };
+  }
+  return timingSafeEqual(tokenBuf, expectedBuf)
+    ? { ok: true }
+    : { ok: false, reason: "unauthorized" };
+}
+
+/** アップロード上限(HIGH-1 未認証DoS対策)。閾値は呼び出し側で差し替え可能。 */
+export interface UploadLimits {
+  maxFiles: number;
+  maxFileBytes: number;
+  maxTotalBytes: number;
+}
+
+/** 既定のアップロード上限:50ファイル / 1ファイル5MB / 合計20MB。 */
+export const DEFAULT_UPLOAD_LIMITS: UploadLimits = {
+  maxFiles: 50,
+  maxFileBytes: 5 * 1024 * 1024,
+  maxTotalBytes: 20 * 1024 * 1024,
+};
+
+/** validateUploadLimits の結果。超過理由を列挙で返す。 */
+export type UploadLimitResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: "too_many_files" | "file_too_large" | "total_too_large";
+    };
+
+/** size を安全な非負数へ正規化する(負・NaN・非数値は0扱い)。 */
+function safeSize(value: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : 0;
+}
+
+/**
+ * アップロードの ①ファイル数 ②1ファイルサイズ ③合計サイズ を検証する(HIGH-1)。
+ * arrayBuffer 展開の**前**に file.size だけで弾き、全ファイルをメモリ展開させない。
+ * 境界値ちょうどは許可し、超過のみ false(理由付き)を返す。
+ */
+export function validateUploadLimits(
+  files: readonly { size: number }[],
+  limits: UploadLimits = DEFAULT_UPLOAD_LIMITS,
+): UploadLimitResult {
+  if (files.length > limits.maxFiles) {
+    return { ok: false, reason: "too_many_files" };
+  }
+  let total = 0;
+  for (const file of files) {
+    const size = safeSize(file.size);
+    if (size > limits.maxFileBytes) {
+      return { ok: false, reason: "file_too_large" };
+    }
+    total += size;
+  }
+  if (total > limits.maxTotalBytes) {
+    return { ok: false, reason: "total_too_large" };
+  }
+  return { ok: true };
+}
+
+/** 取込ルートで必須の env 名(値=秘密は扱わない)。 */
+export const REQUIRED_IMPORT_ENV_VARS = [
+  "DATABASE_URL",
+  "SLACK_BOT_TOKEN",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_REDIRECT_URI",
+] as const;
+
+/**
+ * 必須 env のうち欠落(未設定・空文字)しているものの**名前だけ**を返す純関数。
+ * 値(接続文字列・トークン等の秘密)は受け取っても返さない。
+ */
+export function missingImportEnvVars(
+  env: Record<string, string | undefined>,
+): string[] {
+  return REQUIRED_IMPORT_ENV_VARS.filter((name) => {
+    const v = env[name];
+    return typeof v !== "string" || v.length === 0;
+  });
 }
 
 /** readValue() が返した生の値を文字列へ落とす(null/undefined→"", Date→ISO, その他→String)。 */
