@@ -14,6 +14,7 @@ import type {
   JobcanImportFileError,
   JobcanStaffWarning,
 } from "@management/shift-management";
+import { describeHttpError } from "@management/shift-management/ui";
 
 /** xlsx 変換に失敗したファイル(route が conversionErrors として返す)。 */
 export interface ConversionError {
@@ -118,7 +119,13 @@ function translateError(status: number, body: unknown): string {
     }
     return "取込処理でサーバーエラーが発生しました。時間をおいて再試行してください。";
   }
-  return `想定外の応答(HTTP ${status})が返りました。`;
+  // 取込固有の特例(上記)に当たらない汎用ステータスは共通純関数へ委譲する。
+  // <400 の想定外だけは従来どおりステータス番号を添えて返す。
+  return describeHttpError(
+    status,
+    undefined,
+    `想定外の応答(HTTP ${status})が返りました。`,
+  );
 }
 
 /** import-ui への POST 結果(成功=result / 失敗=errorMessage)。 */

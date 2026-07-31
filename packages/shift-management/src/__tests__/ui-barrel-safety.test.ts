@@ -95,4 +95,12 @@ describe("ui.ts バレル: client 安全性(再汚染ガード)", () => {
     );
     expect(reachedLeaves).toBe(true);
   });
+
+  it("後から追加した純ヘルパ葉(http-error-describe / staff-code)も汚染検知の到達対象に含む", () => {
+    const { files } = collectGraph(UI_BARREL);
+    expect(files.some((file) => file.endsWith("http-error-describe.ts"))).toBe(
+      true,
+    );
+    expect(files.some((file) => file.endsWith("staff-code.ts"))).toBe(true);
+  });
 });

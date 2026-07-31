@@ -10,6 +10,8 @@
  * 収録できる条件: 追加 import ゼロ(または純ファイルのみ)で完結すること。
  *   - describeImportReason: 文字列マップのみ(依存ゼロ)
  *   - findSimilarStaffNames: レーベンシュタイン等の純関数(依存ゼロ)
+ *   - describeHttpError: HTTP ステータス → 日本語文言のみ(依存ゼロ)
+ *   - isValidStaffCode: 正規表現判定のみ(依存ゼロ)
  */
 export { describeImportReason } from "./server/import-reason-describe";
 export { findSimilarStaffNames } from "./server/staff-name-similarity";
@@ -18,3 +20,5 @@ export type {
   StaffNameMatchType,
   SimilarStaffMatch,
 } from "./server/staff-name-similarity";
+export { describeHttpError } from "./server/http-error-describe";
+export { isValidStaffCode, STAFF_CODE_PATTERN } from "./server/staff-code";

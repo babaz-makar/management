@@ -14,9 +14,9 @@ export const COLORS = {
   warning: "#8f5b00",
   warningBg: "#fef5e7",
   warningBorder: "#f5cba7",
-  /** 成功・通常(既定)。 */
+  /** 成功・通常(既定)。success は successBg(#eafaf1)上・白上いずれでも WCAG AA(4.5:1)を満たす濃さ。 */
   text: "#111",
-  success: "#1e8449",
+  success: "#1b7a42",
   successBg: "#eafaf1",
   successBorder: "#a9dfbf",
   /** 中立(枠線・補助テキスト)。 */

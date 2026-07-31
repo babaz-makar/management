@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { COLORS } from "../_lib/tokens";
 import { useDialogFocus } from "../_lib/use-dialog-focus";
 
@@ -38,6 +38,7 @@ export function ApplyConfirmDialog({
 }: ApplyConfirmDialogProps) {
   const [agreed, setAgreed] = useState(false);
   const [dangerAgreed, setDangerAgreed] = useState(false);
+  const titleId = useId();
   // busy 中は Escape での離脱を無効化(反映処理中の誤操作を避ける)。
   const dialogRef = useDialogFocus<HTMLDivElement>(() => {
     if (!busy) onCancel();
@@ -52,6 +53,7 @@ export function ApplyConfirmDialog({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
         tabIndex={-1}
         style={{
           background: "#fff",
@@ -63,7 +65,7 @@ export function ApplyConfirmDialog({
           outline: "none",
         }}
       >
-        <h3 style={{ marginTop: 0, color: accent }}>
+        <h3 id={titleId} style={{ marginTop: 0, color: accent }}>
           {danger ? "本反映(危険な変更を含む)" : "本反映の確認"}
         </h3>
         <p>

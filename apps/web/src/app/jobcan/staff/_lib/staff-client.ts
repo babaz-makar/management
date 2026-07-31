@@ -3,13 +3,14 @@
  * 同一オリジンの /api/staff・/api/staff/slack-check を叩き、結果/エラーを人間語へ翻訳する。
  */
 import type { StaffDirectoryEntry } from "@management/shift-management";
+import {
+  describeHttpError,
+  isValidStaffCode,
+  STAFF_CODE_PATTERN,
+} from "@management/shift-management/ui";
 
-/** staffCode の形式(大文字英字1 + 数字4桁)。UI 即時バリデーション用。 */
-export const STAFF_CODE_PATTERN = /^[A-Z]\d{4}$/;
-
-export function isValidStaffCode(code: string): boolean {
-  return STAFF_CODE_PATTERN.test(code);
-}
+// staffCode 形式判定は packages の純関数へ集約(テスト可能)。既存 import 互換のため再輸出する。
+export { isValidStaffCode, STAFF_CODE_PATTERN };
 
 /** GET /api/staff の結果。 */
 export type ListResult =
@@ -60,6 +61,7 @@ async function parseJsonSafe(response: Response): Promise<unknown> {
 /**
  * 非 2xx を人間語へ翻訳する。サーバー明示メッセージがあれば優先し、
  * 無ければ HTTP ステータスで翻訳する(ネットワーク障害と混同しない)。
+ * ステータス翻訳の本体は packages の describeHttpError に集約(テスト可能)。
  */
 function translateHttpError(
   status: number,
@@ -67,19 +69,7 @@ function translateHttpError(
   fallback: string,
 ): string {
   const serverMessage = readServerMessage(body);
-  if (serverMessage) return serverMessage;
-  if (status === 401 || status === 403) {
-    return "権限がありません(管理画面から操作してください)。";
-  }
-  if (status === 404) return "対象が見つかりませんでした。";
-  if (status === 413) {
-    return "データが大きすぎます。内容を減らして再試行してください。";
-  }
-  if (status >= 500) {
-    return "サーバーエラーが発生しました。時間をおいて再試行してください。";
-  }
-  if (status >= 400) return "リクエストが不正です。入力内容を確認してください。";
-  return fallback;
+  return describeHttpError(status, serverMessage ?? undefined, fallback);
 }
 
 /** 名簿全件を取得する。 */

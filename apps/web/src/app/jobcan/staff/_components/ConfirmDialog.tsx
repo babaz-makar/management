@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { COLORS } from "../../_lib/tokens";
 import { useDialogFocus } from "../../_lib/use-dialog-focus";
 
@@ -36,6 +37,7 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const accent = danger ? COLORS.danger : COLORS.text;
+  const titleId = useId();
   // busy 中は Escape での離脱を無効化(削除/上書き処理中の誤操作を避ける)。
   const dialogRef = useDialogFocus<HTMLDivElement>(() => {
     if (!busy) onCancel();
@@ -46,6 +48,7 @@ export function ConfirmDialog({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
         tabIndex={-1}
         style={{
           background: "#fff",
@@ -57,7 +60,7 @@ export function ConfirmDialog({
           outline: "none",
         }}
       >
-        <h3 style={{ marginTop: 0, color: accent }}>{title}</h3>
+        <h3 id={titleId} style={{ marginTop: 0, color: accent }}>{title}</h3>
         <p style={{ whiteSpace: "pre-wrap" }}>{message}</p>
         <div
           style={{
