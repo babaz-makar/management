@@ -33,3 +33,8 @@ pnpm-debug.log*
 
 # claude code (personal settings; 共有は .claude/settings.json)
 .claude/settings.local.json
+
+# vercel cli
+.vercel/
+
+.vercel
