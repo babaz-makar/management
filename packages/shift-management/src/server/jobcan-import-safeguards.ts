@@ -9,6 +9,7 @@
  */
 
 import { timingSafeEqual } from "crypto";
+import { isValidStaffCode } from "./staff-code";
 
 /** 除去後に空になったファイル名のフォールバック(fileError.message にも載る前提)。 */
 const FALLBACK_FILE_NAME = "(不明なファイル)";
@@ -220,6 +221,53 @@ export function missingImportEnvVars(
     const v = env[name];
     return typeof v !== "string" || v.length === 0;
   });
+}
+
+/** allowlist 要素の区切り(カンマ・空白・タブ・改行の連続を1区切りとみなす)。 */
+const ALLOWLIST_SEPARATOR = /[\s,]+/;
+
+/**
+ * 反映許可リスト(第二関門)を env から Set へパースする(書込ガード仕上げ 2-9)。
+ *
+ * 位置づけ: 「名簿未登録は反映されない」を第一関門(allowlist)とした上に足す
+ * env による絞り込み/緊急停止の第二関門。ここで返した Set に含まれる staffCode
+ * だけが reconcile 対象になる(null なら制限なし=名簿全員許可)。
+ *
+ * - 未設定(undefined)・空文字・空白のみ → null(制限なし=現状挙動維持)。
+ * - カンマ/空白(タブ/改行含む)区切りで分割し、各要素を trim して Set 化する。
+ * - 各要素は staffCode 形式(^[A-Z]\d{4}$)で検証し、1つでも不正なら **throw**
+ *   (fail-loud)。allowlist の書き間違いで「誰も反映されない」「誤って通す」事故を
+ *   起動時に気づけるようにする。例外に env の生値(秘密相当)は載せない。
+ */
+export function parseStaffAllowlist(env: string | undefined): Set<string> | null {
+  if (typeof env !== "string") return null;
+  const trimmed = env.trim();
+  if (trimmed.length === 0) return null;
+  const parts = trimmed.split(ALLOWLIST_SEPARATOR).filter((p) => p.length > 0);
+  if (parts.length === 0) return null;
+  const set = new Set<string>();
+  for (const part of parts) {
+    const code = part.trim();
+    if (!isValidStaffCode(code)) {
+      // 生値(env 全体)は載せない。不正要素の存在だけを一般文言で伝える。
+      throw new Error(
+        "JOBCAN_STAFF_ALLOWLIST に staffCode 形式(例 A0187)でない要素が含まれています",
+      );
+    }
+    set.add(code);
+  }
+  return set;
+}
+
+/**
+ * staffCode が反映許可か判定する(第二関門)。
+ * allowlist が null(制限なし)なら常に許可、Set なら has で判定する。
+ */
+export function isStaffAllowed(
+  staffCode: string,
+  allowlist: Set<string> | null,
+): boolean {
+  return allowlist === null || allowlist.has(staffCode);
 }
 
 /** readValue() が返した生の値を文字列へ落とす(null/undefined→"", Date→ISO, その他→String)。 */

@@ -12,6 +12,7 @@ import {
   verifyImportAuth,
   validateUploadLimits,
   missingImportEnvVars,
+  parseStaffAllowlist,
   type JobcanImportFile,
   type JobcanImportDeps,
   type JobcanImportResult,
@@ -30,8 +31,15 @@ interface ConversionError {
   message: string;
 }
 
-/** 実インフラで runJobcanImport の deps を組む(Neon 名簿 + Slack/Token 解決 + Google カレンダー)。 */
-function buildDeps(databaseUrl: string, botToken: string): JobcanImportDeps {
+/**
+ * 実インフラで runJobcanImport の deps を組む(Neon 名簿 + Slack/Token 解決 + Google カレンダー)。
+ * allowlist は第二関門(書込ガード 2-9)。null なら制限なし(名簿全員許可)。
+ */
+function buildDeps(
+  databaseUrl: string,
+  botToken: string,
+  allowlist: Set<string> | null,
+): JobcanImportDeps {
   const staffDirectory = new NeonStaffDirectory(databaseUrl);
   const tokenStore = new NeonTokenStore(databaseUrl);
   const port: JobcanCalendarPort = {
@@ -47,6 +55,7 @@ function buildDeps(databaseUrl: string, botToken: string): JobcanImportDeps {
       }),
     reconcile: (entries, refreshToken, calendarId, options) =>
       runJobcanReconcile(entries, refreshToken, calendarId, options, port),
+    allowlist,
   };
 }
 
@@ -153,6 +162,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const notifyChannel =
     process.env.SLACK_JOBCAN_CHANNEL_ID ?? process.env.SLACK_WATCH_CHANNEL_ID ?? "";
 
+  // 第二関門(書込ガード 2-9): 反映許可リストを env からパース。
+  // 不正な値(staffCode 形式外)は fail-loud で throw されるため、ここで 500 に落とす
+  // (設定不備。env の生値=秘密相当は出さず、変数名だけを添える)。
+  let allowlist: Set<string> | null;
+  try {
+    allowlist = parseStaffAllowlist(process.env.JOBCAN_STAFF_ALLOWLIST);
+  } catch {
+    return NextResponse.json(
+      { error: "server misconfigured", invalid: "JOBCAN_STAFF_ALLOWLIST" },
+      { status: 500 },
+    );
+  }
+
   try {
     const formData = await req.formData();
     const files = collectFiles(formData);
@@ -175,7 +197,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
     const { importFiles, conversionErrors } = await convertFiles(files);
 
-    const deps = buildDeps(databaseUrl, botToken);
+    const deps = buildDeps(databaseUrl, botToken, allowlist);
     const result = await runJobcanImport(importFiles, deps, {
       dryRun,
       reconcileRemovals: false,

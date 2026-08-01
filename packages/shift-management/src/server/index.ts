@@ -61,6 +61,8 @@ export {
   validateUploadLimits,
   checkContentLength,
   missingImportEnvVars,
+  parseStaffAllowlist,
+  isStaffAllowed,
   DEFAULT_UPLOAD_LIMITS,
   MAX_RELAY_BODY_BYTES,
   REQUIRED_IMPORT_ENV_VARS,

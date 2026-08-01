@@ -497,6 +497,110 @@ describe("reconcileJobcanForAllStaff: 空入力", () => {
   });
 });
 
+describe("reconcileJobcanForAllStaff(2-9): staffCode allowlist 第二関門", () => {
+  it("allowlist=null(省略)なら全員通る(現状挙動維持=回帰なし)", async () => {
+    const calls: ReconcileCall[] = [];
+    const deps = makeDeps({
+      directory: { A0187: "a@example.com", B0002: "b@example.com" },
+      resolve: async (email) => ({ ok: true, refreshToken: "rt", calendarId: email }),
+      calls,
+    });
+    const entries = [entry("A0187", "2026-08-01"), entry("B0002", "2026-08-01")];
+
+    const result = await reconcileJobcanForAllStaff(entries, deps);
+
+    expect(result.reconciled.map((r) => r.staffCode).sort()).toEqual(["A0187", "B0002"]);
+    expect(result.warnings).toHaveLength(0);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("allowlist に居る人だけ reconcile、居ない人は not_allowlisted で隔離(他へ波及しない)", async () => {
+    const calls: ReconcileCall[] = [];
+    const deps: JobcanReconcileAllDeps = {
+      staffDirectory: fakeDirectory({ A0187: "a@example.com", B0002: "b@example.com" }),
+      resolveToken: async (email) => ({ ok: true, refreshToken: "rt", calendarId: email }),
+      reconcile: fakeReconcile(calls),
+      allowlist: new Set(["A0187"]), // B0002 は許可外
+    };
+    const entries = [entry("A0187", "2026-08-01"), entry("B0002", "2026-08-01")];
+
+    const result = await reconcileJobcanForAllStaff(entries, deps);
+
+    // A だけ reconcile。B は許可外で隔離。
+    expect(result.reconciled.map((r) => r.staffCode)).toEqual(["A0187"]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].staffCode).toBe("A0187");
+    const bWarn = result.warnings.find((w) => w.staffCode === "B0002");
+    expect(bWarn).toBeDefined();
+    expect(bWarn!.reason).toBe("not_allowlisted");
+  });
+
+  it("許可外の人は token 解決も名簿解決もされない(入口で隔離)", async () => {
+    const calls: ReconcileCall[] = [];
+    let resolveCalledFor: string[] = [];
+    let directoryCalledFor: string[] = [];
+    const deps: JobcanReconcileAllDeps = {
+      staffDirectory: {
+        async get(staffCode) {
+          directoryCalledFor.push(staffCode);
+          return staffCode === "A0187" ? "a@example.com" : "b@example.com";
+        },
+        async set() {},
+        async list() {
+          return [];
+        },
+        async delete() {},
+      },
+      resolveToken: async (email) => {
+        resolveCalledFor.push(email);
+        return { ok: true, refreshToken: "rt", calendarId: email };
+      },
+      reconcile: fakeReconcile(calls),
+      allowlist: new Set(["A0187"]),
+    };
+    const entries = [entry("A0187", "2026-08-01"), entry("B0002", "2026-08-01")];
+
+    await reconcileJobcanForAllStaff(entries, deps);
+
+    // 許可外 B0002 は名簿 get も resolveToken も呼ばれない。
+    expect(directoryCalledFor).toEqual(["A0187"]);
+    expect(resolveCalledFor).toEqual(["a@example.com"]);
+  });
+
+  it("空の allowlist(緊急停止)は誰も reconcile されず全員 not_allowlisted", async () => {
+    const calls: ReconcileCall[] = [];
+    const deps: JobcanReconcileAllDeps = {
+      staffDirectory: fakeDirectory({ A0187: "a@example.com", B0002: "b@example.com" }),
+      resolveToken: async (email) => ({ ok: true, refreshToken: "rt", calendarId: email }),
+      reconcile: fakeReconcile(calls),
+      allowlist: new Set(),
+    };
+    const entries = [entry("A0187", "2026-08-01"), entry("B0002", "2026-08-01")];
+
+    const result = await reconcileJobcanForAllStaff(entries, deps);
+
+    expect(result.reconciled).toHaveLength(0);
+    expect(calls).toHaveLength(0);
+    expect(result.warnings.every((w) => w.reason === "not_allowlisted")).toBe(true);
+    expect(result.warnings).toHaveLength(2);
+  });
+
+  it("not_allowlisted の warning は staffCode を含み token を含まない", async () => {
+    const deps: JobcanReconcileAllDeps = {
+      staffDirectory: fakeDirectory({ B0002: "b@example.com" }),
+      resolveToken: async (email) => ({ ok: true, refreshToken: "rt-secret", calendarId: email }),
+      reconcile: fakeReconcile([]),
+      allowlist: new Set(["A0187"]),
+    };
+    const result = await reconcileJobcanForAllStaff([entry("B0002", "2026-08-01")], deps);
+    const w = result.warnings.find((x) => x.reason === "not_allowlisted");
+    expect(w).toBeDefined();
+    expect(w!.staffCode).toBe("B0002");
+    expect(w!.message).toContain("B0002");
+    expect(w!.message).not.toContain("rt-secret");
+  });
+});
+
 describe("describeStaffSkipReason: reason→日本語(2-7用)", () => {
   it("email_not_registered", () => {
     const m = describeStaffSkipReason("email_not_registered", { staffCode: "A0187", email: null });
@@ -527,6 +631,15 @@ describe("describeStaffSkipReason: reason→日本語(2-7用)", () => {
       email: "a@example.com",
     });
     expect(m).toContain("A0187");
+    expect(m).not.toContain("rt-");
+  });
+  it("not_allowlisted は staffCode と env 名を含み token を含まない", () => {
+    const m = describeStaffSkipReason("not_allowlisted", {
+      staffCode: "B0002",
+      email: null,
+    });
+    expect(m).toContain("B0002");
+    expect(m).toContain("JOBCAN_STAFF_ALLOWLIST");
     expect(m).not.toContain("rt-");
   });
 });

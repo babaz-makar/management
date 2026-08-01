@@ -162,9 +162,12 @@ export async function deleteStaff(staffCode: string): Promise<DeleteResult> {
 export async function checkSlack(email: string): Promise<SlackCheckResult> {
   let response: Response;
   try {
-    response = await fetch(
-      `/api/staff/slack-check?email=${encodeURIComponent(email)}`,
-    );
+    // email はクエリではなく JSON body で送る(URL/アクセスログに PII を残さない)。
+    response = await fetch("/api/staff/slack-check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
   } catch {
     return {
       status: "unknown",

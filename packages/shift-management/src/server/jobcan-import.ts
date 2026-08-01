@@ -110,6 +110,11 @@ export interface JobcanImportDeps {
     calendarId: string,
     options: JobcanImportOptions,
   ) => Promise<JobcanReconcileResult>;
+  /**
+   * 反映許可リスト(第二関門・書込ガード 2-9)。reconcileJobcanForAllStaff へ素通しする。
+   * null/省略 なら制限なし(名簿全員許可=現状挙動)。Set のとき許可外は not_allowlisted 隔離。
+   */
+  allowlist?: Set<string> | null;
 }
 
 function getErrorMessage(err: unknown): string {
@@ -293,6 +298,7 @@ export async function runJobcanImport(
     resolveToken: deps.resolveToken,
     reconcile: (e, refreshToken, calendarId) =>
       deps.reconcile(e, refreshToken, calendarId, options),
+    allowlist: deps.allowlist ?? null,
   };
 
   try {

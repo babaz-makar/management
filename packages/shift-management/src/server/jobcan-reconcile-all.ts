@@ -17,6 +17,7 @@ import type { ShiftEntry } from "../types";
 import type { StaffDirectory } from "./staff-directory";
 import type { TokenResolution } from "./jobcan-token-resolver";
 import type { JobcanReconcileResult } from "./jobcan-pipeline";
+import { isStaffAllowed } from "./jobcan-import-safeguards";
 
 /**
  * スキップ理由。email→token の失敗(resolver reason)＋その前後の失敗を合わせた union。
@@ -24,6 +25,7 @@ import type { JobcanReconcileResult } from "./jobcan-pipeline";
  * どちらも「その人だけ隔離し他人へ波及させない」ための reason。
  */
 export type JobcanStaffSkipReason =
+  | "not_allowlisted"
   | "email_not_registered"
   | "directory_error"
   | "slack_not_found"
@@ -60,6 +62,13 @@ export interface JobcanReconcileAllDeps {
     refreshToken: string,
     calendarId: string,
   ) => Promise<JobcanReconcileResult>;
+  /**
+   * 反映許可リスト(第二関門・書込ガード 2-9)。null なら制限なし(名簿全員許可=現状挙動)。
+   * Set のときは、含まれない staffCode を入口で not_allowlisted 隔離する
+   * (token/名簿解決も reconcile も一切しない=反映対象を減らす安全側のみ)。
+   * 省略時は null 扱い(既存呼び出しの回帰を防ぐ)。
+   */
+  allowlist?: Set<string> | null;
 }
 
 /** staffCode+sourceMonth ごとの集約バケツ(単一人物・単一月を厳密に保証)。 */
@@ -98,6 +107,8 @@ export function describeStaffSkipReason(
   const who = ctx.email ?? ctx.staffCode;
   const month = ctx.sourceMonth ? `[${ctx.sourceMonth}] ` : "";
   switch (reason) {
+    case "not_allowlisted":
+      return `${month}${ctx.staffCode} は反映許可リスト(JOBCAN_STAFF_ALLOWLIST)に含まれないためスキップしました`;
     case "email_not_registered":
       return `${month}${ctx.staffCode} は email 未登録です(スタッフ名簿に追加してください)`;
     case "directory_error":
@@ -176,8 +187,16 @@ export async function reconcileJobcanForAllStaff(
   const reconciled: JobcanReconcileResult[] = [];
   const warnings: JobcanStaffWarning[] = [];
 
+  const allowlist = deps.allowlist ?? null;
+
   for (const bucket of groupByStaffAndMonth(entries)) {
     const { staffCode, sourceMonth } = bucket;
+    // 第二関門(書込ガード 2-9): 許可外は入口で隔離し、名簿/token 解決も reconcile も
+    // 一切しない(他 per-staff 隔離と対称。反映対象を減らす安全側のみ)。
+    if (!isStaffAllowed(staffCode, allowlist)) {
+      warnings.push(warn(staffCode, null, sourceMonth, "not_allowlisted"));
+      continue;
+    }
     const resolved = await resolveOneStaff(staffCode, sourceMonth, deps);
     if (!resolved.ok) {
       warnings.push(resolved.warning);

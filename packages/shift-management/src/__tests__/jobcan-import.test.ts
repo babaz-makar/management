@@ -144,11 +144,13 @@ function makeDeps(opts: {
   resolve: (email: string) => Promise<TokenResolution>;
   calls: ReconcileCall[];
   createsPerCall?: number;
+  allowlist?: Set<string> | null;
 }): JobcanImportDeps {
   return {
     staffDirectory: fakeDirectory(opts.directory),
     resolveToken: opts.resolve,
     reconcile: fakeReconcile(opts.calls, opts.createsPerCall ?? 0),
+    allowlist: opts.allowlist ?? null,
   };
 }
 
@@ -194,6 +196,52 @@ describe("runJobcanImport: 複数ファイルを集約して reconcileJobcanForA
     expect(result.summary.totalEntries).toBe(2);
     expect(result.summary.staffMonthCount).toBe(2);
     expect(result.summary.importedFiles).toBe(2);
+  });
+});
+
+describe("runJobcanImport(2-9): allowlist 第二関門を reconcile へ通す", () => {
+  it("allowlist に居る人だけ reconcile、居ない人は not_allowlisted 隔離(他ファイルへ波及しない)", async () => {
+    const calls: ReconcileCall[] = [];
+    const deps = makeDeps({
+      directory: { A0187: "a@example.com", B0002: "b@example.com" },
+      resolve: okResolve({ "a@example.com": "rt-A", "b@example.com": "rt-B" }),
+      calls,
+      allowlist: new Set(["A0187"]),
+    });
+    const files = [
+      file("馬場(A0187) 2026年08月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }]),
+      file("佐藤(B0002) 2026年08月度.xlsx", "B0002", [{ day: 2, start: "10:00", end: "19:00" }]),
+    ];
+
+    const result = await runJobcanImport(files, deps, DRY);
+
+    expect(result.reconcile.reconciled.map((r) => r.staffCode)).toEqual(["A0187"]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].staffCode).toBe("A0187");
+    const bWarn = result.reconcile.warnings.find((w) => w.staffCode === "B0002");
+    expect(bWarn).toBeDefined();
+    expect(bWarn!.reason).toBe("not_allowlisted");
+  });
+
+  it("allowlist=null(省略)なら全員通る(回帰なし)", async () => {
+    const calls: ReconcileCall[] = [];
+    const deps = makeDeps({
+      directory: { A0187: "a@example.com", B0002: "b@example.com" },
+      resolve: okResolve({ "a@example.com": "rt-A", "b@example.com": "rt-B" }),
+      calls,
+    });
+    const files = [
+      file("馬場(A0187) 2026年08月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }]),
+      file("佐藤(B0002) 2026年08月度.xlsx", "B0002", [{ day: 2, start: "10:00", end: "19:00" }]),
+    ];
+
+    const result = await runJobcanImport(files, deps, DRY);
+
+    expect(result.reconcile.reconciled.map((r) => r.staffCode).sort()).toEqual([
+      "A0187",
+      "B0002",
+    ]);
+    expect(result.reconcile.warnings).toHaveLength(0);
   });
 });
 
