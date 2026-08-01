@@ -13,6 +13,7 @@ import {
   validateUploadLimits,
   missingImportEnvVars,
   parseStaffAllowlist,
+  buildImportHistoryRecord,
   type JobcanImportFile,
   type JobcanImportDeps,
   type JobcanImportResult,
@@ -20,6 +21,7 @@ import {
 } from "@management/shift-management";
 import { NeonStaffDirectory } from "@/lib/staff-directory-neon";
 import { NeonTokenStore } from "@/lib/token-store-neon";
+import { NeonImportHistoryStore } from "@/lib/import-history-neon";
 import { xlsxToRows } from "@/lib/jobcan-xlsx";
 
 // exceljs / neon は Node ランタイムに依存(Edge では動かない)。
@@ -118,6 +120,28 @@ function buildMessage(result: JobcanImportResult, conversionErrors: ConversionEr
   return lines.join("\n");
 }
 
+/**
+ * 取込1回ぶんの監査行を best-effort で記録する(PII なし)。
+ * 記録失敗は取込結果を握りつぶさない。生 err(接続文字列を含みうる)は出さない。
+ * dry-run・本反映の両方を dry_run フラグ付きで記録する。
+ * import を単一権威に保つため、runJobcanImport や import-ui には入れない。
+ */
+async function recordHistory(
+  databaseUrl: string,
+  result: JobcanImportResult,
+  conversionErrorCount: number,
+  dryRun: boolean,
+): Promise<void> {
+  try {
+    const store = new NeonImportHistoryStore(databaseUrl);
+    await store.insert(
+      buildImportHistoryRecord(result, conversionErrorCount, dryRun),
+    );
+  } catch {
+    // 監査ログ失敗は取込結果を握りつぶさない(ベストエフォート)。
+  }
+}
+
 /** Slack へ best-effort 通知(既存 notifyError と同じ bot token 経路)。失敗しても取込結果は返す。 */
 async function notifySlack(botToken: string, channel: string, text: string): Promise<void> {
   try {
@@ -202,6 +226,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       dryRun,
       reconcileRemovals: false,
     });
+
+    // 監査ログ(best-effort)。dry-run/本反映とも記録。取込結果には影響させない。
+    await recordHistory(databaseUrl, result, conversionErrors.length, dryRun);
 
     const message = buildMessage(result, conversionErrors);
     if (notifyChannel && hasIssues(result, conversionErrors)) {

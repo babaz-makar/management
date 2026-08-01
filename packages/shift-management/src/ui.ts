@@ -22,3 +22,22 @@ export type {
 } from "./server/staff-name-similarity";
 export { describeHttpError } from "./server/http-error-describe";
 export { isValidStaffCode, STAFF_CODE_PATTERN } from "./server/staff-code";
+
+// ホーム画面の状態判定(純関数・依存ゼロ。型のみ server を参照=実行時グラフを辿らない)。
+export {
+  resolveHomeState,
+  formatImportDate,
+  monthRangeIso,
+  APPLY_OFF_BANNER_MESSAGE,
+} from "./logic/jobcan-home-state";
+export type {
+  HomeState,
+  HomePrimary,
+  HomePrimaryKind,
+  HomeSnapshot,
+} from "./logic/jobcan-home-state";
+export type {
+  ImportHistoryRecord,
+  ImportHistoryRow,
+  ImportHistorySummary,
+} from "./logic/jobcan-import-history-types";
