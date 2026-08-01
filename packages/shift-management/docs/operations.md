@@ -124,7 +124,9 @@ staffCode ↔ email の対応を人間が確定して登録する。
 
 - **staffCode = 大文字英字1 + 数字4桁（`^[A-Z]\d{4}$`、例 A0187）。** 小文字は弾く（社長判断）。
 - 名簿・allowlist・UI バリデーションはこの大文字限定に揃っている。パーサ側（sheet/filename）も `^[A-Z]\d{4}$` に統一済み（[design.md](./design.md) 論点2-9）。
-  小文字コードはパーサ側でも弾く（sheet は throw で当該ファイル取込中止、filename は staffCodeInName を不採用＝undefined）。
+  小文字コードはパーサ側でも弾く。sheet は throw で当該ファイル取込中止。filename は括弧内トークンを3分類し、
+  正規の大文字 staffCode は採用／**小文字混入 staffCode（取り違え兆候）は `filename_parse_error` で当該ファイルを隔離（他ファイルは継続）**／
+  staffCode 様でないトークン（部門名・桁違い等）は正当な省略として不採用（undefined）。
 
 ---
 

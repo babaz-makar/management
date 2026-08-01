@@ -175,7 +175,7 @@ describe("runJobcanImport: 複数ファイルを集約して reconcileJobcanForA
       calls,
     });
     const files = [
-      file("馬場(A0187) 2026年08月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }]),
+      file("山田(A0187) 2026年08月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }]),
       file("佐藤(B0002) 2026年08月度.xlsx", "B0002", [{ day: 2, start: "10:00", end: "19:00" }]),
     ];
 
@@ -209,7 +209,7 @@ describe("runJobcanImport(2-9): allowlist 第二関門を reconcile へ通す", 
       allowlist: new Set(["A0187"]),
     });
     const files = [
-      file("馬場(A0187) 2026年08月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }]),
+      file("山田(A0187) 2026年08月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }]),
       file("佐藤(B0002) 2026年08月度.xlsx", "B0002", [{ day: 2, start: "10:00", end: "19:00" }]),
     ];
 
@@ -231,7 +231,7 @@ describe("runJobcanImport(2-9): allowlist 第二関門を reconcile へ通す", 
       calls,
     });
     const files = [
-      file("馬場(A0187) 2026年08月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }]),
+      file("山田(A0187) 2026年08月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }]),
       file("佐藤(B0002) 2026年08月度.xlsx", "B0002", [{ day: 2, start: "10:00", end: "19:00" }]),
     ];
 
@@ -285,7 +285,7 @@ describe("runJobcanImport: 一ファイルの失敗を他ファイル/他人に�
     // 括弧内が小文字(a0187)。シート側は正規の A0187 だが、ファイル名が壊れている時点で
     // 取り違え兆候として弾く(silent にシートコードで取り込ませない)。
     const files = [
-      file("馬場(a0187) 2026年08月度.xlsx", "A0187"),
+      file("山田(a0187) 2026年08月度.xlsx", "A0187"),
       file("佐藤(B0002) 2026年08月度.xlsx", "B0002"),
     ];
 
@@ -293,7 +293,7 @@ describe("runJobcanImport: 一ファイルの失敗を他ファイル/他人に�
 
     expect(result.fileErrors).toHaveLength(1);
     expect(result.fileErrors[0]).toMatchObject({
-      fileName: "馬場(a0187) 2026年08月度.xlsx",
+      fileName: "山田(a0187) 2026年08月度.xlsx",
       reason: "filename_parse_error",
     });
     // 壊れたファイルの entries は集約に載らず、正常な B0002 だけ継続
@@ -310,7 +310,7 @@ describe("runJobcanImport: 一ファイルの失敗を他ファイル/他人に�
     });
     const files = [
       { fileName: "こわれ.xlsx", rows: makeRows("A0187", "試 太郎", ONE_DAY) },
-      file("馬場(A0187) 2026年08月度.xlsx", "A0187"),
+      file("山田(A0187) 2026年08月度.xlsx", "A0187"),
     ];
 
     const result = await runJobcanImport(files, deps, DRY);
@@ -334,7 +334,7 @@ describe("runJobcanImport: 一ファイルの失敗を他ファイル/他人に�
     const broken = makeRows("XX", "試 太郎", ONE_DAY);
     const files = [
       { fileName: "壊れ(A0187) 2026年08月度.xlsx", rows: broken },
-      file("馬場(A0187) 2026年08月度.xlsx", "A0187"),
+      file("山田(A0187) 2026年08月度.xlsx", "A0187"),
     ];
 
     const result = await runJobcanImport(files, deps, DRY);
@@ -356,7 +356,7 @@ describe("runJobcanImport: entries 空(シフト0)ファイルの扱い", () => 
       resolve: okResolve({ "a@example.com": "rt-A" }),
       calls,
     });
-    const files = [file("馬場(A0187) 2026年08月度.xlsx", "A0187", [])];
+    const files = [file("山田(A0187) 2026年08月度.xlsx", "A0187", [])];
 
     const result = await runJobcanImport(files, deps, DRY);
 
@@ -377,7 +377,7 @@ describe("runJobcanImport: dryRun と集計", () => {
       resolve: okResolve({ "a@example.com": "rt-A" }),
       calls,
     });
-    await runJobcanImport([file("馬場(A0187) 2026年08月度.xlsx", "A0187")], deps, {
+    await runJobcanImport([file("山田(A0187) 2026年08月度.xlsx", "A0187")], deps, {
       dryRun: true,
     });
     expect(calls[0].options.dryRun).toBe(true);
@@ -390,7 +390,7 @@ describe("runJobcanImport: dryRun と集計", () => {
       resolve: okResolve({ "a@example.com": "rt-A" }),
       calls,
     });
-    await runJobcanImport([file("馬場(A0187) 2026年08月度.xlsx", "A0187")], deps, {
+    await runJobcanImport([file("山田(A0187) 2026年08月度.xlsx", "A0187")], deps, {
       dryRun: true,
       reconcileRemovals: true,
     });
@@ -406,7 +406,7 @@ describe("runJobcanImport: dryRun と集計", () => {
       createsPerCall: 2,
     });
     const result = await runJobcanImport(
-      [file("馬場(A0187) 2026年08月度.xlsx", "A0187")],
+      [file("山田(A0187) 2026年08月度.xlsx", "A0187")],
       deps,
       { dryRun: false },
     );
@@ -425,7 +425,7 @@ describe("runJobcanImport: 失敗は握りつぶさず構造化して返す", ()
       calls,
     });
     const files = [
-      file("馬場(A0187) 2026年08月度.xlsx", "A0187"), // 正常 A0187
+      file("山田(A0187) 2026年08月度.xlsx", "A0187"), // 正常 A0187
       file("佐藤(B0002) 2026年08月度.xlsx", "B0002"), // reconcile 側 warning(未登録)
       { fileName: "no-month.xlsx", rows: makeRows("A0187", "試 太郎", ONE_DAY) }, // fileError
     ];
@@ -506,7 +506,7 @@ describe("runJobcanImport(M-1): 巨大 entries・不正ファイルでも全損�
       end: "18:00",
     }));
     const files = [
-      file("馬場(A0187) 2026年08月度.xlsx", "A0187", hugeDays),
+      file("山田(A0187) 2026年08月度.xlsx", "A0187", hugeDays),
       file("佐藤(B0002) 2026年08月度.xlsx", "B0002", [{ day: 2, start: "10:00", end: "19:00" }]),
     ];
 
@@ -536,7 +536,7 @@ describe("runJobcanImport(M-1): 巨大 entries・不正ファイルでも全損�
       },
       rows: makeRows("A0187", "試 太郎", ONE_DAY),
     };
-    const files = [evil, file("馬場(A0187) 2026年08月度.xlsx", "A0187")];
+    const files = [evil, file("山田(A0187) 2026年08月度.xlsx", "A0187")];
 
     const result = await runJobcanImport(files, deps, DRY);
 
@@ -558,8 +558,8 @@ describe("runJobcanImport(M-2): 同一人物の複数月を別バケツで両方
       calls,
     });
     const files = [
-      file("馬場(A0187) 2026年08月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }], 8),
-      file("馬場(A0187) 2026年09月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }], 9),
+      file("山田(A0187) 2026年08月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }], 8),
+      file("山田(A0187) 2026年09月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }], 9),
     ];
 
     const result = await runJobcanImport(files, deps, DRY);
@@ -584,8 +584,8 @@ describe("runJobcanImport(M-2): 同一人物の複数月を別バケツで両方
       calls,
     });
     const files = [
-      file("馬場(A0187) 2026年08月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }], 8),
-      file("馬場(A0187) 2026年09月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }], 9),
+      file("山田(A0187) 2026年08月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }], 8),
+      file("山田(A0187) 2026年09月度.xlsx", "A0187", [{ day: 1, start: "09:00", end: "18:00" }], 9),
     ];
 
     const result = await runJobcanImport(files, deps, DRY);
@@ -617,7 +617,7 @@ describe("formatJobcanImportSummary: 人間可読・秘密非包含", () => {
       calls,
     });
     const files = [
-      file("馬場(A0187) 2026年08月度.xlsx", "A0187"),
+      file("山田(A0187) 2026年08月度.xlsx", "A0187"),
       file("佐藤(B0002) 2026年08月度.xlsx", "B0002"),
       { fileName: "no-month.xlsx", rows: makeRows("A0187", "試 太郎", ONE_DAY) },
     ];

@@ -88,7 +88,7 @@ describe("runJobcanImport: reconcile-all が万一 throw しても fileErrors �
   it("reconcile-all が throw しても全損せず fileErrors を保全し reconcileError を載せる", async () => {
     const files = [
       { fileName: "no-month.xlsx", rows: makeRows("A0187", "試 太郎") }, // fileError
-      file("馬場(A0187) 2026年08月度.xlsx", "A0187"), // entries あり → reconcile-all へ(throw)
+      file("山田(A0187) 2026年08月度.xlsx", "A0187"), // entries あり → reconcile-all へ(throw)
     ];
 
     const result = await runJobcanImport(files, fakeDeps(), DRY);
@@ -104,7 +104,7 @@ describe("runJobcanImport: reconcile-all が万一 throw しても fileErrors �
 
   it("reconcileError は formatJobcanImportSummary で可視化される", async () => {
     const result = await runJobcanImport(
-      [file("馬場(A0187) 2026年08月度.xlsx", "A0187")],
+      [file("山田(A0187) 2026年08月度.xlsx", "A0187")],
       fakeDeps(),
       DRY,
     );
@@ -114,7 +114,7 @@ describe("runJobcanImport: reconcile-all が万一 throw しても fileErrors �
 
   it("reconcileError は上流 err の生メッセージ(接続文字列等の秘密)を逐語転写しない", async () => {
     const result = await runJobcanImport(
-      [file("馬場(A0187) 2026年08月度.xlsx", "A0187")],
+      [file("山田(A0187) 2026年08月度.xlsx", "A0187")],
       fakeDeps(),
       DRY,
     );

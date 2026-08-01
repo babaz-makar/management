@@ -4,7 +4,7 @@ import { parseJobcanFileName } from "../logic/jobcan-filename";
 describe("parseJobcanFileName: 正常系", () => {
   it("氏名(コード) YYYY年MM月度.xlsx から年月とstaffCodeを取り出す", () => {
     // Arrange
-    const name = "馬場優蔵(A0187) 2026年08月度.xlsx";
+    const name = "山田太郎(A0187) 2026年08月度.xlsx";
     // Act
     const result = parseJobcanFileName(name);
     // Assert
@@ -29,12 +29,12 @@ describe("parseJobcanFileName: 正常系", () => {
 
 describe("parseJobcanFileName: staffCode の抽出と書式検証", () => {
   it("全角括弧（）内のコードも取り込む", () => {
-    const result = parseJobcanFileName("馬場優蔵（A0187） 2026年08月度.xlsx");
+    const result = parseJobcanFileName("山田太郎（A0187） 2026年08月度.xlsx");
     expect(result.staffCodeInName).toBe("A0187");
   });
 
   it("全角空白を含んでも年月を解決する", () => {
-    const result = parseJobcanFileName("馬場優蔵（A0187）　2026年08月度.xlsx");
+    const result = parseJobcanFileName("山田太郎（A0187）　2026年08月度.xlsx");
     expect(result).toEqual({ year: 2026, month: 8, staffCodeInName: "A0187" });
   });
 
@@ -59,7 +59,7 @@ describe("parseJobcanFileName: staffCode の抽出と書式検証", () => {
     // 手動改名で小文字が混入した異常ファイルは、シート側検証済みコードで silent に
     // 取り込ませず fail-loud。呼び出し側は filename_parse_error として隔離できる。
     expect(() =>
-      parseJobcanFileName("馬場優蔵(a0187) 2026年08月度.xlsx"),
+      parseJobcanFileName("山田太郎(a0187) 2026年08月度.xlsx"),
     ).toThrow();
   });
 
@@ -76,7 +76,7 @@ describe("parseJobcanFileName: staffCode の抽出と書式検証", () => {
   });
 
   it("括弧内が大文字始まり(A0187)なら従来どおり採用する(統一先=大文字のみ許可の正常系)", () => {
-    const result = parseJobcanFileName("馬場優蔵(A0187) 2026年08月度.xlsx");
+    const result = parseJobcanFileName("山田太郎(A0187) 2026年08月度.xlsx");
     expect(result.staffCodeInName).toBe("A0187");
   });
 
@@ -102,14 +102,14 @@ describe("parseJobcanFileName: staffCode の抽出と書式検証", () => {
   });
 
   it("拡張子が違っても(.xls)前後空白があっても年月を解決する", () => {
-    const result = parseJobcanFileName("  馬場優蔵(A0187) 2026年08月度.xls  ");
+    const result = parseJobcanFileName("  山田太郎(A0187) 2026年08月度.xls  ");
     expect(result).toEqual({ year: 2026, month: 8, staffCodeInName: "A0187" });
   });
 });
 
 describe("parseJobcanFileName: fail-loud", () => {
   it("年月が無ければ throw(推測して既定値を入れない)", () => {
-    expect(() => parseJobcanFileName("馬場優蔵(A0187) シフト.xlsx")).toThrow();
+    expect(() => parseJobcanFileName("山田太郎(A0187) シフト.xlsx")).toThrow();
   });
 
   it("年だけ(月なし)でも throw", () => {

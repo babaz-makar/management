@@ -27,7 +27,7 @@ import {
 
 /** 1ファイル(=1人1ヶ月ぶん)の入力。rows は xlsx を行×列で文字列化したもの。 */
 export interface JobcanImportFile {
-  /** 例 "馬場優蔵(A0187) 2026年08月度.xlsx" */
+  /** 例 "山田太郎(A0187) 2026年08月度.xlsx" */
   fileName: string;
   /** xlsx を行×列で文字列化済み(2-7b で変換)。空セル="" */
   rows: string[][];
