@@ -1,0 +1,47 @@
+{
+  "display_information": {
+    "name": "シフトリマインド",
+    "description": "前日夜と当日朝に、Googleカレンダーのシフトをチャンネルへ通知します",
+    "background_color": "#1f6feb",
+    "long_description": "Googleカレンダーの「SHO-SANシフト」予定を読み取り、前日21:00（翌日分）と当日08:00（当日分）にチャンネルへ投稿して対象者をメンションします。対象メンバーはチャンネルごとに設定し、Botを招待したタイミングで選びます。シフト変更ツール（別アプリ）とは分離して運用します。"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "シフトリマインド",
+      "always_online": true
+    },
+    "slash_commands": [
+      {
+        "command": "/shift-remind",
+        "url": "https://management-web-eta.vercel.app/api/slack/shift-remind/commands",
+        "description": "シフトリマインドの対象メンバー設定・プレビュー",
+        "usage_hint": "setup | add @user | remove @user | list | test",
+        "should_escape": true
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "chat:write",
+        "commands",
+        "users:read",
+        "channels:read",
+        "groups:read"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://management-web-eta.vercel.app/api/slack/shift-remind/events",
+      "bot_events": ["member_joined_channel", "member_left_channel"]
+    },
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://management-web-eta.vercel.app/api/slack/shift-remind/interactions"
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

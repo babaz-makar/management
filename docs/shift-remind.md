@@ -96,6 +96,22 @@ Vercel Cron (0 23 * * * UTC = JST 08:00) ─┴─→ /api/cron/shift-remind?tim
 
 分ける理由：表示名・アイコンを分けられる／スコープを最小化できる／障害の切り分けが楽。
 
+> **⚠️ 先にデプロイすること。** Slack は Event Subscriptions の Request URL を保存時に検証する
+> （`url_verification` チャレンジをPOSTしてくる）ので、`/api/slack/shift-remind/events`
+> が本番に無いとApp作成が失敗する。
+
+#### 最短手順：App Manifest を貼る
+
+[docs/slack-app-manifest.json](./slack-app-manifest.json) を用意してある。
+<https://api.slack.com/apps> → **Create New App** → **From an app manifest** →
+ワークスペースを選択 → JSON タブに貼り付け、で下の 2〜5 が一度に設定される。
+URL がこのリポジトリの本番URLと違う場合は、貼る前に3箇所を書き換えること。
+
+`should_escape: true` は必須。これが false だと `/shift-remind add @山田` のメンションが
+プレーンテキストで届き、ユーザーIDを解決できない。
+
+#### 手動で設定する場合
+
 1. <https://api.slack.com/apps> で **Create New App**（名前例：`シフトリマインド`）
 2. **OAuth & Permissions → Bot Token Scopes** に追加
    | スコープ | 用途 |
