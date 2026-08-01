@@ -1,5 +1,6 @@
 import { google, type calendar_v3 } from "googleapis";
 import type { CalendarPlan, ExistingEvent, NewEventSpec } from "../logic/calendar-plan";
+import { parseIsoToJst } from "../logic/jst";
 
 // ---------------------------------------------------------------------------
 // OAuth2 クライアント生成
@@ -53,22 +54,25 @@ export async function listEventsForDate(
     orderBy: "startTime",
   });
 
-  return (res.data.items ?? [])
-    .filter((e) => e.start?.dateTime && e.end?.dateTime)
-    .map((e) => ({
-      id: e.id!,
-      shiftId: e.extendedProperties?.private?.shiftId,
-      date,
-      startTime: fmtISO(e.start!.dateTime!),
-      endTime: fmtISO(e.end!.dateTime!),
-    }));
-}
-
-/** ISO 8601 dateTime → "HH:MM"（タイムゾーン変換せずJST部分を直接抽出） */
-function fmtISO(iso: string): string {
-  const d = new Date(iso);
-  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-  return `${String(jst.getUTCHours()).padStart(2, "0")}:${String(jst.getUTCMinutes()).padStart(2, "0")}`;
+  return (
+    (res.data.items ?? [])
+      .filter((e) => e.start?.dateTime && e.end?.dateTime)
+      .map((e) => {
+        const start = parseIsoToJst(e.start!.dateTime!);
+        const end = parseIsoToJst(e.end!.dateTime!);
+        return {
+          id: e.id!,
+          shiftId: e.extendedProperties?.private?.shiftId,
+          // 検索した日付ではなく、予定の開始時刻からJSTの日付を求める
+          date: start.date,
+          startTime: start.time,
+          endTime: end.time,
+        };
+      })
+      // events.list は範囲に「重なる」予定も返すため、JSTで当日開始のものだけ残す
+      // （前日22:00-翌1:00 のような予定を当日のシフトと誤認しない）
+      .filter((e) => e.date === date)
+  );
 }
 
 /**

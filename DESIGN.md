@@ -105,7 +105,18 @@ export interface StaffToken {
   { "extendedProperties": { "private": { "shiftId": "<slackUserId>:<date>", "managedBy": "shift-management" } } }
   ```
 - upsert検索は `events.list` の `privateExtendedProperty=shiftId=...` を使用（calendarId は `primary`）
-- イベントタイトル例: `シフト 12:00-18:00`、description に変更理由と元Slackメッセージへのリンク
+- イベントタイトルは固定で `SHO-SANシフト`、description に変更理由と元Slackメッセージへのリンク
+  - 定数 `SHIFT_EVENT_SUMMARY`（`src/logic/calendar-plan.ts`）が唯一の定義。
+    **シフト予定を作成する経路は、どれもこの定数を使うこと**（ジョブカン取込など後から足す経路も含め、
+    このツールの方式を親とする。タイトルに時刻を含めない）
+- **元シフトの同定は時間のみで行う（タイトルは判定に使わない）**
+  - 「変更前」の 日付＋開始＋終了 が**完全一致**する予定だけが削除候補
+  - 候補の中に `shiftId` 一致（当ツール管理）があればそれを削除、無ければ候補が1件のときだけ削除
+  - `shiftId` が一致しても時間が違う予定は削除しない（同日に複数シフトがあっても誤爆しない）
+- **日付・時刻はすべてJST（Asia/Tokyo）で扱う**（`src/logic/jst.ts`）
+  - 既存予定の読み取りは開始時刻をJST変換し、JSTで当日開始の予定だけを対象にする
+  - 年補完もメッセージ時刻をJSTで解釈する
+  - イベント作成は `timeZone: "Asia/Tokyo"` 固定。実行環境がUTCでも結果が変わらない
 
 ## Slack連携
 

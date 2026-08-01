@@ -24,6 +24,18 @@ describe("completeDate", () => {
   it("月日をゼロ埋めしたISO形式で返す", () => {
     expect(completeDate(7, 5, june)).toBe("2026-07-05");
   });
+
+  it("報告日時はJSTで解釈する（UTCでは前日でも日本時間の月で判定）", () => {
+    // 2026-02-28T20:00Z = 2026-03-01 05:00 JST。JSTでは3月なので「1/5」は翌年
+    const marchInJst = new Date("2026-02-28T20:00:00Z");
+    expect(completeDate(1, 5, marchInJst)).toBe("2027-01-05");
+  });
+
+  it("JSTで年が変わっていれば新しい年を基準にする", () => {
+    // 2025-12-31T16:00Z = 2026-01-01 01:00 JST
+    const newYearInJst = new Date("2025-12-31T16:00:00Z");
+    expect(completeDate(1, 2, newYearInJst)).toBe("2026-01-02");
+  });
 });
 
 describe("normalizeText", () => {
