@@ -14,6 +14,11 @@ const STAFF_CODE_RE = /^[A-Z]\d{4}$/;
  * STAFF_CODE_RE(大文字のみ許可)に合致しないのにこの形状には合致する = 小文字混入等の
  * 「壊れた staffCode」。手動改名の異常兆候なので undefined で握りつぶさず取り違え検知に回す。
  * A1(桁不足)・1234(英字なし)・Z99999(桁超過)等は形状に非該当=正当な省略として扱う。
+ *
+ * 前提: 実 jobcan のファイル名は括弧内が大文字 staffCode 1個のみ。この形状(小文字英字1+数字4桁)
+ * に該当し大文字版に非該当なものは取り違え兆候として throw する。よって運用者が "(v2024)" 等の
+ * 付随的な小文字英字1+数字4桁トークンを付けると、それらも取り違え兆候として隔離される
+ * (=可用性トレードオフ。取り違えによるデータ汚染を避ける安全優先の判断)。
  */
 const STAFF_CODE_SHAPE_RE = /^[A-Za-z]\d{4}$/;
 
@@ -81,8 +86,9 @@ export function parseJobcanFileName(fileName: string): {
  *  2. staffCode様だが大文字書式に合わない(小文字混入等) → 取り違え兆候として throw。
  *  3. staffCode様ですらない(会社名・部門・桁数違い等) → 正当な省略として無視。
  * 3を先に除外(どちらの正規表現にも非該当)するので、2の判定に到達した時点で「壊れたコード」確定。
- * "田中(株)(A0187)" のように前段の括弧があっても取りこぼさず、
- * "田中(株)(b0999)" のように壊れたコードが混じれば走査を最後まで続け1枚も落とさず弾く。
+ * "田中(株)(A0187)" のように前段の括弧があっても取りこぼさない: 正規コードは採用しつつ
+ * continue で走査を継続し、"田中(株)(b0999)" のように小文字混入トークンへ到達した時点で
+ * 即 throw する(壊れたコードを見つけた瞬間に取込を止め、後続の括弧は評価しない)。
  */
 function extractStaffCodeInName(normalized: string): string | undefined {
   let staffCodeInName: string | undefined;
@@ -92,6 +98,7 @@ function extractStaffCodeInName(normalized: string): string | undefined {
       if (staffCodeInName === undefined) staffCodeInName = candidate;
       continue; // 走査は続行(後段に壊れたコードが無いか最後まで確認する)
     }
+    // 既知の穴: 全角英字/ゼロ幅/制御文字混入コードは normalizeText 未通過のため throw を回避しうる(既存 defense-in-depth の穴・本変更の回帰ではない。ハードニング=全角半角化+制御文字除去はバックログ)。
     if (STAFF_CODE_SHAPE_RE.test(candidate)) {
       throw new Error(
         `ファイル名の括弧内(${candidate})が staffCode 書式(大文字1文字+数字4桁)に合致しません。` +
