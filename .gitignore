@@ -16,6 +16,9 @@ build/
 .env.local
 .env*.local
 
+# token store (contains OAuth refresh tokens)
+data/tokens.json
+
 # logs
 *.log
 npm-debug.log*
@@ -28,3 +31,7 @@ pnpm-debug.log*
 
 # claude code (personal settings; 共有は .claude/settings.json)
 .claude/settings.local.json
+
+# coverage (generated)
+coverage/
+**/coverage/

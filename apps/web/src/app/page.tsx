@@ -1,10 +1,12 @@
+import { ShiftManagement } from "@management/shift-management";
+
 export default function Home() {
   return (
     <main
       style={{
         fontFamily: "system-ui, sans-serif",
         padding: "3rem 1.5rem",
-        maxWidth: 720,
+        maxWidth: 960,
         margin: "0 auto",
       }}
     >
@@ -17,6 +19,7 @@ export default function Home() {
         自分のツールをここで確認するには、<code>src/app/page.tsx</code> でそのツールを import し、
         <code>next.config.ts</code> の <code>transpilePackages</code> にパッケージ名を追加してください。
       </p>
+      <ShiftManagement />
     </main>
   );
 }
