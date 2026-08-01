@@ -55,6 +55,7 @@ export function StaffTable({ entries, query, onQueryChange, onDelete }: StaffTab
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
             placeholder="staffCode / email で検索"
+            aria-label="staffCode / email で検索"
             style={{
               flex: 1,
               border: "none",

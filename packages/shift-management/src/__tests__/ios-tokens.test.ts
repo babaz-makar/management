@@ -92,7 +92,8 @@ describe("IOS トークン定数: iOS 標準ライト値を固定する", () => 
     expect(IOS.color.redText).toBe("#D70015");
     expect(IOS.color.orange).toBe("#FF9500");
     expect(IOS.color.green).toBe("#34C759");
-    expect(IOS.color.greenText).toBe("#248A3D");
+    // #248A3D は白/淡緑地で AA 未達のため一段濃い #1E7A34 に調整(コントラスト実測済み)。
+    expect(IOS.color.greenText).toBe("#1E7A34");
   });
 
   it("systemGray1-6(濃→淡)", () => {
@@ -194,7 +195,7 @@ describe("iosCalloutColors: トーン別の帯配色を固定する", () => {
 
   it("success はグリーン系", () => {
     const c = iosCalloutColors("success");
-    expect(c.color).toBe("#248A3D");
+    expect(c.color).toBe("#1E7A34");
     expect(c.bar).toBe("#34C759");
   });
 

@@ -41,3 +41,20 @@ body {
     animation-duration: 2.4s;
   }
 }
+
+/*
+ * iOS グループ化画面の水平余白。狭い幅=16px、>=768 で 20px に広げる。
+ * インライン style ではメディアクエリを表現できないため、水平方向だけここで制御する
+ * (垂直余白・最大幅・床色は Screen のインライン style が持つ)。
+ */
+.jobcan-ios-screen {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+@media (min-width: 768px) {
+  .jobcan-ios-screen {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}

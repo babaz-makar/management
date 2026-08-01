@@ -83,16 +83,24 @@ export function StaffConfirmCard({
       </h2>
 
       <div style={{ marginBottom: 12 }}>
-        <label style={{ display: "block", color: IOS.color.secondaryLabel, ...iosType("footnote") }}>
-          staffCode(例 A0187)
+        <label style={{ display: "block" }}>
+          <span
+            style={{
+              display: "block",
+              color: IOS.color.secondaryLabel,
+              ...iosType("footnote"),
+            }}
+          >
+            staffCode(例 A0187)
+          </span>
+          <input
+            type="text"
+            value={staffCode}
+            onChange={(e) => setStaffCode(e.target.value)}
+            placeholder="A0187"
+            style={{ ...inputStyle, width: 180, marginTop: 4 }}
+          />
         </label>
-        <input
-          type="text"
-          value={staffCode}
-          onChange={(e) => setStaffCode(e.target.value)}
-          placeholder="A0187"
-          style={{ ...inputStyle, width: 180, marginTop: 4 }}
-        />
         {staffCode.length > 0 && !codeValid && (
           <div style={{ color: IOS.color.redText, marginTop: 4, ...iosType("footnote") }}>
             形式が不正です(大文字英字1文字 + 数字4桁)。
@@ -101,20 +109,28 @@ export function StaffConfirmCard({
       </div>
 
       <div style={{ marginBottom: 8 }}>
-        <label style={{ display: "block", color: IOS.color.secondaryLabel, ...iosType("footnote") }}>
-          email
+        <label style={{ display: "block" }}>
+          <span
+            style={{
+              display: "block",
+              color: IOS.color.secondaryLabel,
+              ...iosType("footnote"),
+            }}
+          >
+            email
+          </span>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setSlackResult(null);
+              setAgreed(false);
+            }}
+            placeholder="name@example.com"
+            style={{ ...inputStyle, width: 300, maxWidth: "100%", marginTop: 4 }}
+          />
         </label>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => {
-            setEmail(e.target.value);
-            setSlackResult(null);
-            setAgreed(false);
-          }}
-          placeholder="name@example.com"
-          style={{ ...inputStyle, width: 300, maxWidth: "100%", marginTop: 4 }}
-        />
       </div>
 
       <SlackCheckButton

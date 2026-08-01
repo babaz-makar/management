@@ -14,6 +14,8 @@ interface ScreenProps {
 export function Screen({ children }: ScreenProps) {
   return (
     <main
+      // 水平余白(16→≥768で20)はメディアクエリが要るため CSS クラスで制御。
+      className="jobcan-ios-screen"
       style={{
         fontFamily: IOS.fontFamily,
         background: IOS.color.groupedBg,
@@ -22,7 +24,8 @@ export function Screen({ children }: ScreenProps) {
         boxSizing: "border-box",
         maxWidth: IOS.metrics.maxWidth,
         margin: "0 auto",
-        padding: `28px ${IOS.metrics.screenPadX}px 64px`,
+        paddingTop: 28,
+        paddingBottom: 64,
         ...iosType("body"),
       }}
     >

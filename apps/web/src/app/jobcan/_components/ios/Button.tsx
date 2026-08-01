@@ -8,7 +8,7 @@ import {
   type IosButtonVariant,
 } from "../../_lib/tokens";
 
-interface IosButtonProps {
+interface IosButtonBaseProps {
   children: ReactNode;
   variant?: IosButtonVariant;
   disabled?: boolean;
@@ -16,12 +16,18 @@ interface IosButtonProps {
   fullWidth?: boolean;
   /** 主要ボタン(高さ 50)か補助(高さ 44)か。plain は高さを詰める。 */
   size?: "primary" | "regular";
-  onClick?: () => void;
-  /** 渡すとリンク(<a>)として描画する。CTA の href をそのまま保つ用途。 */
-  href?: string;
   ariaLabel?: string;
   style?: CSSProperties;
 }
+
+/**
+ * href と onClick は型で相互排他にする(どちらか一方のみ)。
+ * href を渡す=リンク(<a>)描画、onClick を渡す=ボタン描画。両方指定は
+ * 「anchor でハンドラ無音欠落」の温床になるため、型で禁止する。
+ */
+type IosButtonProps =
+  | (IosButtonBaseProps & { href: string; onClick?: never })
+  | (IosButtonBaseProps & { onClick?: () => void; href?: never });
 
 /**
  * iOS 風ボタン(filled / tinted / plain / destructive)。

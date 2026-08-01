@@ -39,9 +39,13 @@ const COLOR = {
   orange: "#FF9500",
   orangeText: "#8F5B00",
   orangeTintBg: "#FFF4E5",
-  /** 成功(systemGreen 階調)。 */
+  /**
+   * 成功(systemGreen 階調)。
+   * greenText は白地(5.40:1)・greenTintBg 上(4.95:1)いずれも WCAG AA(4.5:1)を満たす濃さ。
+   * iOS 標準の #248A3D は両背景で AA 未達(4.40/4.03)のため一段濃く調整している。
+   */
   green: "#34C759",
-  greenText: "#248A3D",
+  greenText: "#1E7A34",
   greenTintBg: "#E9F9EE",
 } as const;
 
