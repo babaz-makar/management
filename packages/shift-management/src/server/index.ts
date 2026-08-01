@@ -16,9 +16,22 @@ export type { TokenStore } from "./token-store";
 
 // シフトリマインド（カレンダー → Slack 事前通知）
 export { getShiftsForMember, getShiftsForMembers, nowJstLabel } from "./remind-calendar";
-export { slackApi, postMessage, openView, respondEphemeral } from "./slack-remind";
+export {
+  slackApi,
+  postMessage,
+  openView,
+  respondEphemeral,
+  respondWebhook,
+  getBotUserId,
+  listConversationMembers,
+  filterHumanUsers,
+} from "./slack-remind";
 export { runRemind } from "./remind-runner";
-export type { RunRemindOptions, RunRemindResult } from "./remind-runner";
+export type {
+  RunRemindOptions,
+  RunRemindResult,
+  ChannelRunResult,
+} from "./remind-runner";
 export type {
   RemindStore,
   RemindSettings,

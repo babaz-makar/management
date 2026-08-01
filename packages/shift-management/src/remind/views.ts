@@ -1,89 +1,51 @@
 /**
- * /shift-remind の Modal（Block Kit）定義と、view_submission のパース。
+ * Slack UI（Modal / ボタン付きメッセージ）の定義と、送信された値のパース。
+ *
+ * 対象メンバーは**チャンネル単位**。Botを招待したチャンネルで参加者から選び、
+ * あとから参加した人はボタン1つで追加できるようにしている。
  *
  * Block Kit のJSONは型を厳密に書いても得が少ないので unknown 寄りで扱い、
  * 「送信された値を取り出す」側だけを型付きの関数に閉じ込める。
  */
 
-export const SETUP_CALLBACK_ID = "shift_remind_setup";
-export const CHANNELS_CALLBACK_ID = "shift_remind_channels";
+/** Modal の callback_id */
+export const MEMBERS_CALLBACK_ID = "shift_remind_members";
 
-const ENABLED_OPTION_VALUE = "enabled";
+/** ボタンの action_id */
+export const ACTION_OPEN_MEMBERS = "shift_remind_open_members";
+export const ACTION_ADD_MEMBER = "shift_remind_add_member";
+export const ACTION_DISMISS = "shift_remind_dismiss";
 
-/** メンバー設定 Modal */
-export function buildSetupView(): Record<string, unknown> {
-  return {
-    type: "modal",
-    callback_id: SETUP_CALLBACK_ID,
-    title: { type: "plain_text", text: "シフトリマインド設定" },
-    submit: { type: "plain_text", text: "保存" },
-    close: { type: "plain_text", text: "閉じる" },
-    blocks: [
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: "Google Calendar 連携済みのメンバーは、既定で全員リマインド対象です。個別に止めたい人・別カレンダーを見る人だけここで設定してください。",
-        },
-      },
-      {
-        type: "input",
-        block_id: "member",
-        label: { type: "plain_text", text: "対象メンバー" },
-        element: { type: "users_select", action_id: "value", placeholder: { type: "plain_text", text: "Slackユーザーを選択" } },
-      },
-      {
-        type: "input",
-        block_id: "enabled",
-        optional: true,
-        label: { type: "plain_text", text: "リマインド" },
-        element: {
-          type: "checkboxes",
-          action_id: "value",
-          initial_options: [enabledOption()],
-          options: [enabledOption()],
-        },
-        hint: { type: "plain_text", text: "チェックを外すとこの人へのリマインドを止めます" },
-      },
-      {
-        type: "input",
-        block_id: "calendar_id",
-        optional: true,
-        label: { type: "plain_text", text: "対象カレンダーID" },
-        element: {
-          type: "plain_text_input",
-          action_id: "value",
-          initial_value: "primary",
-          placeholder: { type: "plain_text", text: "primary" },
-        },
-        hint: { type: "plain_text", text: "通常は primary のままでOK。別カレンダーにシフトを入れている場合だけ変更してください" },
-      },
-      {
-        type: "input",
-        block_id: "display_name",
-        optional: true,
-        label: { type: "plain_text", text: "表示名（任意）" },
-        element: { type: "plain_text_input", action_id: "value" },
-        hint: { type: "plain_text", text: "設定一覧で見分けるためのメモ。通知文はメンションを使います" },
-      },
-    ],
-  };
-}
+// ---------------------------------------------------------------------------
+// 対象メンバー選択 Modal
+// ---------------------------------------------------------------------------
 
-/** 通知先チャンネル設定 Modal */
-export function buildChannelsView(currentTargets: string[]): Record<string, unknown> {
+/**
+ * チャンネルの対象メンバーを選ぶ Modal。
+ *
+ * @param channelId  対象チャンネル。private_metadata に載せて送信時に取り戻す
+ * @param initialUsers 初期選択。Bot招待直後は「チャンネルの参加者（Bot除く）」を、
+ *                     再編集時は「すでに登録済みのメンバー」を渡す
+ * @param channelLabel 見出しに出すチャンネル名（`<#C0123>` 形式でよい）
+ */
+export function buildMembersView(
+  channelId: string,
+  initialUsers: string[],
+  channelLabel?: string,
+): Record<string, unknown> {
   const element: Record<string, unknown> = {
-    type: "multi_conversations_select",
+    type: "multi_users_select",
     action_id: "value",
-    placeholder: { type: "plain_text", text: "チャンネルを選択" },
+    placeholder: { type: "plain_text", text: "メンバーを選択" },
   };
-  // 空配列を渡すと Slack がエラーを返すため、既存設定があるときだけ初期値を入れる
-  if (currentTargets.length > 0) element.initial_conversations = currentTargets;
+  // 空配列を渡すと Slack がエラーを返すため、1人以上いるときだけ初期値を入れる
+  if (initialUsers.length > 0) element.initial_users = initialUsers;
 
   return {
     type: "modal",
-    callback_id: CHANNELS_CALLBACK_ID,
-    title: { type: "plain_text", text: "通知先チャンネル" },
+    callback_id: MEMBERS_CALLBACK_ID,
+    private_metadata: channelId,
+    title: { type: "plain_text", text: "リマインド対象メンバー" },
     submit: { type: "plain_text", text: "保存" },
     close: { type: "plain_text", text: "閉じる" },
     blocks: [
@@ -91,24 +53,112 @@ export function buildChannelsView(currentTargets: string[]): Record<string, unkn
         type: "section",
         text: {
           type: "mrkdwn",
-          text: "リマインドを投稿するチャンネルです。*Botを事前に招待しておいてください。*",
+          text: `${channelLabel ? `${channelLabel} の` : "このチャンネルの"}シフトリマインド対象メンバーを選んでください。\n選んだ人のGoogleカレンダーを読み、シフトがある日だけこのチャンネルに通知します。`,
         },
       },
       {
         type: "input",
-        block_id: "channels",
-        label: { type: "plain_text", text: "通知先" },
+        block_id: "members",
+        optional: true,
+        label: { type: "plain_text", text: "対象メンバー" },
         element,
+        hint: {
+          type: "plain_text",
+          text: "外した人には通知しません。全員外すとこのチャンネルへの通知は止まります",
+        },
       },
     ],
   };
 }
 
-function enabledOption() {
-  return {
-    value: ENABLED_OPTION_VALUE,
-    text: { type: "plain_text", text: "リマインドを有効にする" },
-  };
+// ---------------------------------------------------------------------------
+// チャンネルに投稿するボタン付きメッセージ
+// ---------------------------------------------------------------------------
+
+/** Bot が招待されたときの案内（「対象メンバーを選ぶ」ボタン付き） */
+export function buildBotJoinedBlocks(
+  channelId: string,
+  suggestedUsers: string[],
+): unknown[] {
+  const suggestion =
+    suggestedUsers.length > 0
+      ? `このチャンネルの参加者 ${suggestedUsers.length}人 を初期値として選んであります。不要な人を外して保存してください。`
+      : "このチャンネルにはまだ参加者がいないようです。あとから `/shift-remind setup` で設定できます。";
+
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `:wave: シフトリマインドを有効にしました。\nまず *このチャンネルで通知する対象メンバー* を決めてください。\n\n${suggestion}`,
+      },
+    },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          action_id: ACTION_OPEN_MEMBERS,
+          style: "primary",
+          text: { type: "plain_text", text: "対象メンバーを選ぶ" },
+          value: channelId,
+        },
+      ],
+    },
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: "あとから変更するときは `/shift-remind setup`（一覧は `/shift-remind list`）",
+        },
+      ],
+    },
+  ];
+}
+
+/** あとから人が参加したときの「対象に追加しますか？」（ワンクリック追加） */
+export function buildUserJoinedBlocks(
+  channelId: string,
+  slackUserId: string,
+): unknown[] {
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `<@${slackUserId}> さんが参加しました。シフトリマインドの対象に追加しますか？`,
+      },
+    },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          action_id: ACTION_ADD_MEMBER,
+          style: "primary",
+          text: { type: "plain_text", text: "対象に追加" },
+          value: `${channelId}:${slackUserId}`,
+        },
+        {
+          type: "button",
+          action_id: ACTION_DISMISS,
+          text: { type: "plain_text", text: "追加しない" },
+          value: `${channelId}:${slackUserId}`,
+        },
+      ],
+    },
+  ];
+}
+
+/** ボタンの value（`channelId:slackUserId`）を分解する */
+export function parseActionValue(
+  value: string | undefined,
+): { channelId: string; slackUserId: string } | null {
+  if (!value) return null;
+  const [channelId, slackUserId] = value.split(":");
+  if (!channelId || !slackUserId) return null;
+  return { channelId, slackUserId };
 }
 
 // ---------------------------------------------------------------------------
@@ -118,41 +168,24 @@ function enabledOption() {
 type ViewState = {
   values?: Record<string, Record<string, {
     value?: string | null;
-    selected_user?: string | null;
-    selected_options?: { value: string }[] | null;
-    selected_conversations?: string[] | null;
+    selected_users?: string[] | null;
   }>>;
 };
 
-export interface SetupSubmission {
-  slackUserId: string;
-  remindEnabled: boolean;
-  calendarId: string;
-  displayName?: string;
+export interface MembersSubmission {
+  channelId: string;
+  slackUserIds: string[];
 }
 
-/** メンバー設定 Modal の送信値。必須項目が取れなければ null */
-export function parseSetupSubmission(state: ViewState): SetupSubmission | null {
-  const slackUserId = field(state, "member")?.selected_user;
-  if (!slackUserId) return null;
-
-  const selected = field(state, "enabled")?.selected_options ?? [];
-  const calendarId = field(state, "calendar_id")?.value?.trim();
-  const displayName = field(state, "display_name")?.value?.trim();
-
+/** 対象メンバー Modal の送信値。channel_id は private_metadata から取る */
+export function parseMembersSubmission(view: {
+  private_metadata?: string;
+  state?: ViewState;
+}): MembersSubmission | null {
+  const channelId = view.private_metadata;
+  if (!channelId) return null;
   return {
-    slackUserId,
-    remindEnabled: selected.some((o) => o.value === ENABLED_OPTION_VALUE),
-    calendarId: calendarId && calendarId.length > 0 ? calendarId : "primary",
-    displayName: displayName && displayName.length > 0 ? displayName : undefined,
+    channelId,
+    slackUserIds: view.state?.values?.members?.value?.selected_users ?? [],
   };
-}
-
-/** 通知先チャンネル Modal の送信値 */
-export function parseChannelsSubmission(state: ViewState): string[] {
-  return field(state, "channels")?.selected_conversations ?? [];
-}
-
-function field(state: ViewState, blockId: string) {
-  return state.values?.[blockId]?.value;
 }

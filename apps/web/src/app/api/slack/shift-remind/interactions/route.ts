@@ -1,22 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  CHANNELS_CALLBACK_ID,
-  SETUP_CALLBACK_ID,
-  parseChannelsSubmission,
-  parseSetupSubmission,
+  ACTION_ADD_MEMBER,
+  ACTION_DISMISS,
+  ACTION_OPEN_MEMBERS,
+  MEMBERS_CALLBACK_ID,
+  formatConnectRequest,
+  formatMemberAdded,
+  parseActionValue,
+  parseMembersSubmission,
   postMessage,
+  respondWebhook,
   verifySlackRequest,
 } from "@management/shift-management";
 import { getRemindStore, remindEnv } from "@/lib/remind-config";
+import { openMembersModal } from "@/lib/remind-ui";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /**
- * `/shift-remind` の Modal 送信（view_submission）を受ける。
+ * ボタン押下（block_actions）と Modal 送信（view_submission）を受ける。
  *
  * Slackは3秒以内の応答を要求するので、DB書き込みだけ済ませて即返す。
- * 確認メッセージは本人へのDMで非同期に伝える（失敗しても Modal は閉じる）。
+ * 結果の表示は response_url でメッセージを差し替える形にしている。
  */
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
@@ -29,91 +36,148 @@ export async function POST(req: NextRequest) {
   if (!payloadRaw) return NextResponse.json({});
 
   const payload = JSON.parse(payloadRaw);
-  if (payload.type !== "view_submission") return NextResponse.json({});
-
-  const callbackId = payload.view?.callback_id;
-  const state = payload.view?.state ?? {};
-  const actorId: string | undefined = payload.user?.id;
 
   try {
-    if (callbackId === SETUP_CALLBACK_ID) {
-      return await saveSetup(state, actorId);
-    }
-    if (callbackId === CHANNELS_CALLBACK_ID) {
-      return await saveChannels(state, actorId);
-    }
+    if (payload.type === "block_actions") return await handleAction(payload);
+    if (payload.type === "view_submission") return await handleSubmission(payload);
   } catch (err) {
-    console.error("[shift-remind] view_submission error:", err);
-    return NextResponse.json({
-      response_action: "errors",
-      errors: {
-        // 先頭の input ブロックにエラーを出す（Modalを閉じずに再入力させる）
-        [callbackId === CHANNELS_CALLBACK_ID ? "channels" : "member"]:
-          err instanceof Error ? err.message : "保存に失敗しました",
-      },
-    });
+    console.error("[shift-remind] interaction error:", err);
+    if (payload.type === "view_submission") {
+      return NextResponse.json({
+        response_action: "errors",
+        errors: {
+          members: err instanceof Error ? err.message : "保存に失敗しました",
+        },
+      });
+    }
   }
 
   return NextResponse.json({});
 }
 
-async function saveSetup(state: unknown, actorId?: string) {
-  const parsed = parseSetupSubmission(state as never);
+// ---------------------------------------------------------------------------
+// ボタン
+// ---------------------------------------------------------------------------
+
+async function handleAction(payload: {
+  actions?: { action_id: string; value?: string }[];
+  trigger_id?: string;
+  response_url?: string;
+  channel?: { id?: string };
+  user?: { id?: string };
+}) {
+  const action = payload.actions?.[0];
+  if (!action) return NextResponse.json({});
+
+  if (action.action_id === ACTION_OPEN_MEMBERS) {
+    const channelId = action.value ?? payload.channel?.id ?? "";
+    if (channelId && payload.trigger_id) {
+      await openMembersModal(channelId, payload.trigger_id);
+    }
+    return NextResponse.json({});
+  }
+
+  if (action.action_id === ACTION_ADD_MEMBER) {
+    const parsed = parseActionValue(action.value);
+    if (!parsed) return NextResponse.json({});
+
+    const store = getRemindStore();
+    await store.addChannelMembers(parsed.channelId, [parsed.slackUserId]);
+
+    const connected = await store.hasGoogleToken(parsed.slackUserId);
+    const text = formatMemberAdded(
+      [parsed.slackUserId],
+      connected ? [] : [parsed.slackUserId],
+      remindEnv.appUrl ?? "",
+    );
+
+    // ボタン付きメッセージを結果に差し替える（押したあとにボタンが残らないように）
+    if (payload.response_url) {
+      await respondWebhook(payload.response_url, {
+        replace_original: true,
+        text: remindEnv.appUrl ? text : `:white_check_mark: <@${parsed.slackUserId}> を対象に追加しました。`,
+      });
+    }
+    return NextResponse.json({});
+  }
+
+  if (action.action_id === ACTION_DISMISS) {
+    const parsed = parseActionValue(action.value);
+    if (payload.response_url) {
+      await respondWebhook(payload.response_url, {
+        replace_original: true,
+        text: parsed
+          ? `<@${parsed.slackUserId}> は対象に追加しませんでした。あとから追加するときは \`/shift-remind setup\` で選べます。`
+          : "対象に追加しませんでした。",
+      });
+    }
+    return NextResponse.json({});
+  }
+
+  return NextResponse.json({});
+}
+
+// ---------------------------------------------------------------------------
+// Modal 送信
+// ---------------------------------------------------------------------------
+
+async function handleSubmission(payload: {
+  view?: { callback_id?: string; private_metadata?: string; state?: unknown };
+  user?: { id?: string };
+}) {
+  if (payload.view?.callback_id !== MEMBERS_CALLBACK_ID) {
+    return NextResponse.json({});
+  }
+
+  const parsed = parseMembersSubmission(payload.view as never);
   if (!parsed) {
     return NextResponse.json({
       response_action: "errors",
-      errors: { member: "メンバーを選択してください" },
+      errors: { members: "対象チャンネルを特定できませんでした。もう一度お試しください" },
     });
   }
 
   const store = getRemindStore();
   await store.init();
-  await store.saveSettings({
-    slackUserId: parsed.slackUserId,
-    remindEnabled: parsed.remindEnabled,
-    calendarId: parsed.calendarId,
-    displayName: parsed.displayName,
-    // 手動で保存し直したときは連携切れフラグを解除する（再連携後の復帰手段）
-    calendarStatus: "ok",
-  });
+  // Modalから保存されたチャンネルは通知先としても有効にする
+  // （Botを招待済みなら既に登録されているが、手動運用でも成立するようにしておく）
+  await store.addNotificationTarget(parsed.channelId);
+  await store.setChannelMembers(parsed.channelId, parsed.slackUserIds);
 
-  const connected = await store.hasGoogleToken(parsed.slackUserId);
-  const status = parsed.remindEnabled ? "有効" : "無効";
-  const warn = connected
-    ? ""
-    : "\n:warning: このメンバーはまだ Google Calendar を連携していません。シフト変更チャンネルへの投稿で表示される連携リンクから登録してもらってください。";
-
-  await notify(
-    actorId,
-    `<@${parsed.slackUserId}> のシフトリマインドを *${status}* にしました（カレンダー: ${parsed.calendarId}）${warn}`,
-  );
+  await announceResult(parsed.channelId, parsed.slackUserIds);
 
   return NextResponse.json({});
 }
 
-async function saveChannels(state: unknown, actorId?: string) {
-  const channels = parseChannelsSubmission(state as never);
-  const store = getRemindStore();
-  await store.init();
-  await store.setNotificationTargets(channels.map((c) => ({ targetId: c })));
-
-  await notify(
-    actorId,
-    channels.length > 0
-      ? `通知先を更新しました: ${channels.map((c) => `<#${c}>`).join(" ")}\nBotが未参加のチャンネルには投稿できないので、招待を忘れずに。`
-      : "通知先をすべて解除しました。この状態ではリマインドは送信されません。",
-  );
-
-  return NextResponse.json({});
-}
-
-/** 操作した本人へDMで結果を伝える。失敗しても処理は止めない */
-async function notify(actorId: string | undefined, text: string): Promise<void> {
-  if (!actorId || !remindEnv.botToken) return;
-  const result = await postMessage(remindEnv.botToken, actorId, text);
-  if (!result.ok) {
-    console.warn("[shift-remind] 確認DMの送信に失敗:", result.error);
+/** 保存結果をチャンネルに投稿し、未連携メンバーには連携をお願いする */
+async function announceResult(
+  channelId: string,
+  slackUserIds: string[],
+): Promise<void> {
+  if (slackUserIds.length === 0) {
+    await postMessage(
+      remindEnv.botToken,
+      channelId,
+      ":mute: 対象メンバーを全員外しました。このチャンネルへのシフトリマインドは止まります。",
+    );
+    return;
   }
+
+  const store = getRemindStore();
+  const members = await store.listChannelMembers(channelId);
+  const unconnected = members.filter((m) => !m.connected).map((m) => m.slackUserId);
+
+  const lines = [
+    `:white_check_mark: シフトリマインドの対象メンバーを ${slackUserIds.length}人 に設定しました。`,
+    slackUserIds.map((id) => `<@${id}>`).join(" "),
+  ];
+
+  const request = remindEnv.appUrl
+    ? formatConnectRequest(unconnected, remindEnv.appUrl)
+    : null;
+  if (request) lines.push("", request);
+
+  await postMessage(remindEnv.botToken, channelId, lines.join("\n"));
 }
 
 function verifyOrSkip(req: NextRequest, rawBody: string): boolean {

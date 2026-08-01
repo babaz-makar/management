@@ -30,12 +30,12 @@ export const remindEnv = {
   get cronSecret() {
     return process.env.CRON_SECRET ?? "";
   },
-  /** DBに通知先が未登録のときのフォールバック（カンマ区切り） */
-  get fallbackChannelIds() {
-    return (process.env.SLACK_REMIND_CHANNEL_IDS ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+  /**
+   * カレンダー連携リンクの生成に使う本番URL（既存ツールと共用）。
+   * 未設定なら未連携メンバーへの連携依頼は送らない。
+   */
+  get appUrl() {
+    return process.env.APP_URL || undefined;
   },
   get databaseUrl() {
     return process.env.DATABASE_URL ?? "";
@@ -62,11 +62,4 @@ export function getRemindStore(): RemindStore {
   }
   store = new NeonRemindStore(remindEnv.databaseUrl, remindEnv.calendarId);
   return store;
-}
-
-/** 通知先チャンネル。DBの notification_targets を優先し、無ければ環境変数を使う */
-export async function resolveChannelIds(s: RemindStore): Promise<string[]> {
-  const targets = await s.listNotificationTargets();
-  if (targets.length > 0) return targets.map((t) => t.targetId);
-  return remindEnv.fallbackChannelIds;
 }

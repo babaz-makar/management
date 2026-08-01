@@ -1,30 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  buildChannelsView,
-  buildSetupView,
-  openView,
+  SHIFT_TITLE_KEYWORD,
+  formatMemberAdded,
   resolveTargetDate,
   respondEphemeral,
   runRemind,
   verifySlackRequest,
-  SHIFT_TITLE_KEYWORD,
-  type RemindSettings,
+  type ChannelMember,
   type RemindTiming,
 } from "@management/shift-management";
-import { getRemindStore, remindEnv, resolveChannelIds } from "@/lib/remind-config";
+import { getRemindStore, remindEnv } from "@/lib/remind-config";
+import { openMembersModal } from "@/lib/remind-ui";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * `/shift-remind` スラッシュコマンド。
+ * `/shift-remind` スラッシュコマンド。**実行したチャンネルに対して**効く。
  *
- *   setup     … メンバー設定 Modal を開く
- *   channels  … 通知先チャンネル設定 Modal を開く
- *   list      … 現在の設定を表示
- *   test      … 送信せずに通知文をプレビュー（dryRun）
- *   help      … 使い方
+ *   setup        … 対象メンバーを選ぶ Modal を開く（初期値は登録済み or チャンネル参加者）
+ *   add @user…   … 対象メンバーを追加（Modalを開かずに素早く追加する用）
+ *   remove @user…… 対象メンバーを外す
+ *   list         … このチャンネルの対象メンバーと連携状況を表示
+ *   test         … このチャンネル分の通知文をプレビュー（送信しない）
+ *   help         … 使い方
  *
  * 署名検証は **リマインド専用アプリの** Signing Secret を使う
  * （既存のシフト変更ツールとは別アプリなので値が違う）。
@@ -39,19 +39,25 @@ export async function POST(req: NextRequest) {
   const form = new URLSearchParams(rawBody);
   const args = (form.get("text") ?? "").trim().split(/\s+/).filter(Boolean);
   const sub = (args[0] ?? "help").toLowerCase();
+  const channelId = form.get("channel_id") ?? "";
   const triggerId = form.get("trigger_id") ?? "";
   const responseUrl = form.get("response_url") ?? "";
+
+  if (!channelId) return ephemeral("チャンネル内で実行してください。");
 
   try {
     switch (sub) {
       case "setup":
-        return await handleSetup(triggerId);
-      case "channels":
-        return await handleChannels(triggerId);
+      case "members":
+        return await handleSetup(channelId, triggerId);
+      case "add":
+        return await handleAdd(channelId, args.slice(1));
+      case "remove":
+        return await handleRemove(channelId, args.slice(1));
       case "list":
-        return await handleList();
+        return await handleList(channelId);
       case "test":
-        return await handleTest(args[1], responseUrl);
+        return await handleTest(channelId, args[1], responseUrl);
       default:
         return ephemeral(helpText());
     }
@@ -63,59 +69,80 @@ export async function POST(req: NextRequest) {
   }
 }
 
-async function handleSetup(triggerId: string) {
-  const result = await openView(remindEnv.botToken, triggerId, buildSetupView());
+async function handleSetup(channelId: string, triggerId: string) {
+  if (!triggerId) return ephemeral("Modalを開けませんでした（trigger_idがありません）");
+  const result = await openMembersModal(channelId, triggerId);
   if (!result.ok) return ephemeral(`Modalを開けませんでした: ${result.error}`);
   return new NextResponse(null, { status: 200 });
 }
 
-async function handleChannels(triggerId: string) {
+async function handleAdd(channelId: string, rest: string[]) {
+  const userIds = parseMentions(rest);
+  if (userIds.length === 0) {
+    return ephemeral("追加するメンバーをメンションで指定してください（例: `/shift-remind add @山田`）");
+  }
+
   const store = getRemindStore();
-  const targets = await store.listNotificationTargets();
-  const result = await openView(
-    remindEnv.botToken,
-    triggerId,
-    buildChannelsView(targets.map((t) => t.targetId)),
+  await store.addNotificationTarget(channelId);
+  await store.addChannelMembers(channelId, userIds);
+
+  const members = await store.listChannelMembers(channelId);
+  const unconnected = members
+    .filter((m) => userIds.includes(m.slackUserId) && !m.connected)
+    .map((m) => m.slackUserId);
+
+  return ephemeral(formatMemberAdded(userIds, unconnected, remindEnv.appUrl ?? ""));
+}
+
+async function handleRemove(channelId: string, rest: string[]) {
+  const userIds = parseMentions(rest);
+  if (userIds.length === 0) {
+    return ephemeral("外すメンバーをメンションで指定してください（例: `/shift-remind remove @山田`）");
+  }
+
+  await getRemindStore().removeChannelMembers(channelId, userIds);
+  return ephemeral(
+    `${userIds.map((id) => `<@${id}>`).join(" ")} をシフトリマインドの対象から外しました。`,
   );
-  if (!result.ok) return ephemeral(`Modalを開けませんでした: ${result.error}`);
-  return new NextResponse(null, { status: 200 });
 }
 
-async function handleList() {
+async function handleList(channelId: string) {
   const store = getRemindStore();
-  const [settings, targets] = await Promise.all([
-    store.listSettings(),
+  const [members, targets] = await Promise.all([
+    store.listChannelMembers(channelId),
     store.listNotificationTargets(),
   ]);
 
-  const lines = ["*シフトリマインドの設定*", "", "*通知先チャンネル*"];
-  lines.push(
-    targets.length > 0
-      ? targets.map((t) => `• <#${t.targetId}>`).join("\n")
-      : `• 未設定（環境変数のフォールバック: ${remindEnv.fallbackChannelIds.join(", ") || "なし"}）`,
-  );
+  const registered = targets.some((t) => t.channelId === channelId);
+  const lines = [
+    `*<#${channelId}> のシフトリマインド*`,
+    registered
+      ? ":white_check_mark: 通知先として有効"
+      : ":no_entry: 通知先が無効（Botを招待し直すか `/shift-remind setup` で保存してください）",
+    "",
+    "*対象メンバー*",
+  ];
 
-  lines.push("", "*メンバー*");
   lines.push(
-    settings.length > 0
-      ? settings.map(formatSettingLine).join("\n")
-      : "• Google Calendar 連携済みのメンバーがいません",
+    members.length > 0
+      ? members.map(formatMemberLine).join("\n")
+      : "• 未設定 — `/shift-remind setup` で選んでください",
   );
 
   return ephemeral(lines.join("\n"));
 }
 
-function formatSettingLine(s: RemindSettings): string {
-  const state = !s.connected
-    ? ":no_entry: Google未連携"
-    : s.calendarStatus === "revoked"
+function formatMemberLine(m: ChannelMember): string {
+  const state = !m.connected
+    ? ":no_entry: カレンダー未連携"
+    : m.calendarStatus === "revoked"
       ? ":warning: 連携切れ（再連携が必要）"
-      : s.remindEnabled
+      : m.remindEnabled
         ? ":white_check_mark: 有効"
-        : ":mute: 無効"; // 本人の希望で止めている状態
-  const calendar = s.calendarId === "primary" ? "" : ` / カレンダー: ${s.calendarId}`;
-  const name = s.displayName ? ` (${s.displayName})` : "";
-  return `• <@${s.slackUserId}>${name} ${state}${calendar}`;
+        : ":mute: 本人設定で停止中";
+  const calendar = m.calendarId === "primary" ? "" : ` / カレンダー: ${m.calendarId}`;
+  const name = m.displayName ? ` (${m.displayName})` : "";
+  return `• <@${m.slackUserId}>${name} ${state}${calendar}`;
 }
 
 /**
@@ -124,10 +151,14 @@ function formatSettingLine(s: RemindSettings): string {
  * カレンダー取得に3秒以上かかるとSlackがタイムアウト表示を出すため、
  * 結果は response_url 経由の遅延応答で返す（遅延応答なら必ず届く）。
  */
-async function handleTest(when: string | undefined, responseUrl: string) {
-  const timing: RemindTiming = when === "morning" || when === "today" ? "morning" : "prev_night";
+async function handleTest(
+  channelId: string,
+  when: string | undefined,
+  responseUrl: string,
+) {
+  const timing: RemindTiming =
+    when === "morning" || when === "today" ? "morning" : "prev_night";
   const store = getRemindStore();
-  const channelIds = await resolveChannelIds(store);
   const date = resolveTargetDate(timing, new Date());
 
   const result = await runRemind({
@@ -135,19 +166,29 @@ async function handleTest(when: string | undefined, responseUrl: string) {
     botToken: remindEnv.botToken,
     timing,
     date,
-    channelIds,
-    adminChannelId: remindEnv.adminChannelId,
+    channelIds: [channelId],
     changeChannelLabel: remindEnv.changeChannelLabel,
+    appUrl: remindEnv.appUrl,
     dryRun: true,
   });
 
+  const ch = result.channels[0];
   const header =
     `*プレビュー（送信しません）* timing=${timing} / 対象日=${date}\n` +
-    `連携メンバー ${result.memberCount}人 / 該当シフト ${result.shiftCount}件 / ` +
-    `通知先 ${channelIds.length}チャンネル`;
+    `登録メンバー ${ch?.memberCount ?? 0}人（うち連携済み ${ch?.activeCount ?? 0}人） / ` +
+    `該当シフト ${ch?.shiftCount ?? 0}件`;
 
-  const body = result.message ?? "（対象日にシフトのあるメンバーがいないため、通知は送られません）";
-  const notes = [...result.warnings, ...result.errors].map((w) => `• ${w}`).join("\n");
+  const body =
+    ch?.message ?? "（対象日にシフトのあるメンバーがいないため、通知は送られません）";
+  const notes = [
+    ...(ch?.unconnected.length
+      ? [`未連携: ${ch.unconnected.map((id) => `<@${id}>`).join(" ")}`]
+      : []),
+    ...result.warnings,
+    ...result.errors,
+  ]
+    .map((w) => `• ${w}`)
+    .join("\n");
 
   const text = [header, "", body, notes ? `\n---\n${notes}` : ""].join("\n");
 
@@ -158,16 +199,29 @@ async function handleTest(when: string | undefined, responseUrl: string) {
   return ephemeral(text);
 }
 
+/** `<@U0123ABCD|name>` 形式のメンションからユーザーIDを取り出す */
+function parseMentions(tokens: string[]): string[] {
+  const ids = new Set<string>();
+  for (const t of tokens) {
+    const m = t.match(/^<@([A-Z0-9]+)(\|[^>]*)?>$/);
+    if (m) ids.add(m[1]);
+    else if (/^[UW][A-Z0-9]{4,}$/.test(t)) ids.add(t); // 生のIDでも受け付ける
+  }
+  return [...ids];
+}
+
 function helpText(): string {
   return [
-    "*シフトリマインドの使い方*",
-    "`/shift-remind setup` … メンバーごとの有効/無効・対象カレンダーを設定",
-    "`/shift-remind channels` … 通知先チャンネルを設定（Botの招待を忘れずに）",
-    "`/shift-remind list` … 現在の設定を表示",
+    "*シフトリマインドの使い方*（実行したチャンネルに対して効きます）",
+    "`/shift-remind setup` … 対象メンバーを選ぶ",
+    "`/shift-remind add @山田 @佐藤` … 対象メンバーを追加",
+    "`/shift-remind remove @山田` … 対象メンバーを外す",
+    "`/shift-remind list` … 対象メンバーと連携状況を表示",
     "`/shift-remind test` … 明日分の通知文をプレビュー（送信しません）",
     "`/shift-remind test today` … 当日分の通知文をプレビュー",
     "",
-    `通知は前日21:00（翌日分）と当日08:00（当日分）に自動送信されます。カレンダーのタイトルに「${SHIFT_TITLE_KEYWORD}」を含む予定が対象です。`,
+    "Bot をチャンネルに招待すると、そのチャンネルが通知先として登録され、対象メンバーを選ぶ案内が出ます。",
+    `通知は前日21:00（翌日分）と当日08:00（当日分）。カレンダーのタイトルに「${SHIFT_TITLE_KEYWORD}」を含む予定が対象です。`,
   ].join("\n");
 }
 

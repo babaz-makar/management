@@ -55,6 +55,45 @@ function sortByStart(shifts: ShiftEntry[]): ShiftEntry[] {
   );
 }
 
+/**
+ * Google Calendar 未連携のメンバーへ連携をお願いする文。
+ *
+ * 連携リンクは既存のシフト変更ツールの OAuth 開始URLをそのまま使う
+ * （トークンの保存先が同じなので、どちらから連携しても両方の機能が動く）。
+ */
+export function formatConnectRequest(
+  slackUserIds: string[],
+  appUrl: string,
+): string | null {
+  if (slackUserIds.length === 0) return null;
+  return [
+    ":link: *Googleカレンダーの連携がまだのメンバーがいます*",
+    "下のリンクから連携すると、シフトを読んでリマインドできるようになります。",
+    "",
+    ...slackUserIds.map((id) => `<@${id}> → ${connectUrl(appUrl, id)}`),
+  ].join("\n");
+}
+
+/** 対象メンバーに追加したときの確認文。未連携なら連携リンクも添える */
+export function formatMemberAdded(
+  slackUserIds: string[],
+  unconnected: string[],
+  appUrl: string,
+): string {
+  const added = slackUserIds.map((id) => `<@${id}>`).join(" ");
+  const lines = [`:white_check_mark: ${added} をシフトリマインドの対象に追加しました。`];
+
+  const request = formatConnectRequest(unconnected, appUrl);
+  if (request) lines.push("", request);
+
+  return lines.join("\n");
+}
+
+/** OAuth 開始URL（親元ツールのルート） */
+export function connectUrl(appUrl: string, slackUserId: string): string {
+  return `${appUrl.replace(/\/$/, "")}/api/auth/google?slack_user_id=${slackUserId}`;
+}
+
 /** 管理チャンネルへ流す警告のまとめ。警告が無ければ null */
 export function formatWarningMessage(
   date: string,

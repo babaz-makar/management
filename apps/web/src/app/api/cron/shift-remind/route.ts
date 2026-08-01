@@ -5,7 +5,7 @@ import {
   nowJstLabel,
   type RemindTiming,
 } from "@management/shift-management";
-import { getRemindStore, remindEnv, resolveChannelIds } from "@/lib/remind-config";
+import { getRemindStore, remindEnv } from "@/lib/remind-config";
 
 // googleapis を使うので Edge ではなく Node ランタイムで動かす
 export const runtime = "nodejs";
@@ -62,26 +62,29 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const store = getRemindStore();
-    const channelIds = await resolveChannelIds(store);
-
     const result = await runRemind({
-      store,
+      store: getRemindStore(),
       botToken: remindEnv.botToken,
       timing,
       date,
-      channelIds,
       adminChannelId: remindEnv.adminChannelId,
       changeChannelLabel: remindEnv.changeChannelLabel,
+      appUrl: remindEnv.appUrl,
       dryRun,
     });
 
     // 発火時刻がJSTで意図どおりか（0 23 * * * が翌朝8時か）をログで追えるようにする
     console.log(
       `[shift-remind] ${nowJstLabel()} timing=${timing} date=${date} ` +
-        `members=${result.memberCount} shifts=${result.shiftCount} ` +
-        `notified=${result.notifiedCount} sent=${result.sentChannels.length} ` +
-        `skipped=${result.skippedReason ?? "-"}`,
+        `channels=${result.channels.length} ` +
+        `sent=${result.channels.filter((c) => c.sent).length} ` +
+        result.channels
+          .map(
+            (c) =>
+              `[${c.channelId} members=${c.memberCount} shifts=${c.shiftCount} ` +
+              `notified=${c.notifiedCount} skipped=${c.skippedReason ?? "-"}]`,
+          )
+          .join(" "),
     );
 
     return NextResponse.json({ ok: true, executedAt: nowJstLabel(), ...result });

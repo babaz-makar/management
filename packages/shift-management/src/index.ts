@@ -59,20 +59,27 @@ export {
   formatRemindMessage,
   formatRange,
   formatWarningMessage,
+  formatConnectRequest,
+  formatMemberAdded,
+  connectUrl,
 } from "./remind/format-message";
 export type { FormatRemindOptions } from "./remind/format-message";
 export {
-  buildSetupView,
-  buildChannelsView,
-  parseSetupSubmission,
-  parseChannelsSubmission,
-  SETUP_CALLBACK_ID,
-  CHANNELS_CALLBACK_ID,
+  buildMembersView,
+  buildBotJoinedBlocks,
+  buildUserJoinedBlocks,
+  parseMembersSubmission,
+  parseActionValue,
+  MEMBERS_CALLBACK_ID,
+  ACTION_OPEN_MEMBERS,
+  ACTION_ADD_MEMBER,
+  ACTION_DISMISS,
 } from "./remind/views";
-export type { SetupSubmission } from "./remind/views";
+export type { MembersSubmission } from "./remind/views";
 export type {
   RemindTiming,
   RemindMember,
+  ChannelMember,
   ShiftEntry,
   MemberShiftResult,
 } from "./remind/types";
@@ -84,11 +91,16 @@ export {
   postMessage,
   openView,
   respondEphemeral,
+  respondWebhook,
+  getBotUserId,
+  listConversationMembers,
+  filterHumanUsers,
   runRemind,
 } from "./server";
 export type {
   RunRemindOptions,
   RunRemindResult,
+  ChannelRunResult,
   RemindStore,
   RemindSettings,
   NotificationTarget,

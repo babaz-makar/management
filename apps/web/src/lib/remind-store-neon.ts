@@ -1,5 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import type {
+  ChannelMember,
   NotificationTarget,
   RemindMember,
   RemindSettings,
@@ -43,7 +44,7 @@ export class NeonRemindStore implements RemindStore {
       )
     `;
 
-    // メンバー設定。tokens に列を足さないのは refresh_token NOT NULL のため
+    // メンバーの個人設定。tokens に列を足さないのは refresh_token NOT NULL のため
     // （未連携のメンバーの設定を先に保存できるようにする）
     await sql`
       CREATE TABLE IF NOT EXISTS remind_settings (
@@ -56,45 +57,139 @@ export class NeonRemindStore implements RemindStore {
       )
     `;
 
+    // 通知先チャンネル。Botを招待した時点で登録し、外したら enabled=false にする
     await sql`
       CREATE TABLE IF NOT EXISTS notification_targets (
-        target_id TEXT PRIMARY KEY,
-        label     TEXT,
-        enabled   BOOLEAN NOT NULL DEFAULT TRUE
+        channel_id TEXT PRIMARY KEY,
+        label      TEXT,
+        enabled    BOOLEAN NOT NULL DEFAULT TRUE
       )
     `;
 
-    // UNIQUE (slack_user_id, event_uid, timing) が二重送信防止の要。
-    // cron が二重起動しても2回目の予約が弾かれる
+    // チャンネルごとの対象メンバー。誰を通知するかはチャンネル単位で明示的に決める
+    await sql`
+      CREATE TABLE IF NOT EXISTS channel_members (
+        channel_id    TEXT NOT NULL,
+        slack_user_id TEXT NOT NULL,
+        added_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (channel_id, slack_user_id)
+      )
+    `;
+
     await sql`
       CREATE TABLE IF NOT EXISTS notification_logs (
         id            BIGSERIAL PRIMARY KEY,
+        channel_id    TEXT NOT NULL DEFAULT '',
         slack_user_id TEXT NOT NULL,
         event_uid     TEXT NOT NULL,
         timing        TEXT NOT NULL CHECK (timing IN ('prev_night','morning')),
         shift_start   TIMESTAMPTZ NOT NULL,
         shift_end     TIMESTAMPTZ NOT NULL,
         status        TEXT NOT NULL DEFAULT 'pending',
-        sent_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-        UNIQUE (slack_user_id, event_uid, timing)
+        sent_at       TIMESTAMPTZ NOT NULL DEFAULT now()
       )
+    `;
+    // 同じ人が複数チャンネルに登録されていれば、チャンネルごとに1通ずつ送る。
+    // 二重送信防止はこの UNIQUE インデックスで担保する（テーブル制約ではなく
+    // 名前付きインデックスにしているのは、旧定義からの移行を冪等にするため）
+    await sql`
+      ALTER TABLE notification_logs ADD COLUMN IF NOT EXISTS channel_id TEXT NOT NULL DEFAULT ''
+    `;
+    await sql`
+      ALTER TABLE notification_logs
+        DROP CONSTRAINT IF EXISTS notification_logs_slack_user_id_event_uid_timing_key
+    `;
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS notification_logs_uniq
+        ON notification_logs (channel_id, slack_user_id, event_uid, timing)
     `;
 
     this.initialized = true;
   }
 
-  async listRemindMembers(): Promise<RemindMember[]> {
+  // -------------------------------------------------------------------------
+  // 通知先チャンネル
+  // -------------------------------------------------------------------------
+
+  async listNotificationTargets(): Promise<NotificationTarget[]> {
     await this.init();
     const rows = (await this.sql`
-      SELECT t.slack_user_id,
+      SELECT channel_id, label, enabled FROM notification_targets
+      WHERE enabled = TRUE
+      ORDER BY channel_id
+    `) as Record<string, unknown>[];
+
+    return rows.map((r) => ({
+      channelId: r.channel_id as string,
+      label: (r.label as string | null) ?? undefined,
+      enabled: Boolean(r.enabled),
+    }));
+  }
+
+  async addNotificationTarget(channelId: string, label?: string): Promise<void> {
+    await this.init();
+    await this.sql`
+      INSERT INTO notification_targets (channel_id, label, enabled)
+      VALUES (${channelId}, ${label ?? null}, TRUE)
+      ON CONFLICT (channel_id) DO UPDATE SET
+        enabled = TRUE,
+        label = COALESCE(${label ?? null}::text, notification_targets.label)
+    `;
+  }
+
+  async disableNotificationTarget(channelId: string): Promise<void> {
+    await this.init();
+    // 登録メンバー（channel_members）は消さない。再招待したときに選び直しにならないよう残す
+    await this.sql`
+      UPDATE notification_targets SET enabled = FALSE WHERE channel_id = ${channelId}
+    `;
+  }
+
+  // -------------------------------------------------------------------------
+  // チャンネルごとの対象メンバー
+  // -------------------------------------------------------------------------
+
+  async listChannelMembers(channelId: string): Promise<ChannelMember[]> {
+    await this.init();
+    const rows = (await this.sql`
+      SELECT cm.slack_user_id,
+             (t.slack_user_id IS NOT NULL)                       AS connected,
+             COALESCE(s.remind_enabled, TRUE)                    AS remind_enabled,
+             COALESCE(s.calendar_status, 'ok')                    AS calendar_status,
+             COALESCE(s.calendar_id, ${this.defaultCalendarId})   AS calendar_id,
+             s.display_name
+      FROM channel_members cm
+      LEFT JOIN tokens t          ON t.slack_user_id = cm.slack_user_id
+      LEFT JOIN remind_settings s ON s.slack_user_id = cm.slack_user_id
+      WHERE cm.channel_id = ${channelId}
+      ORDER BY cm.added_at, cm.slack_user_id
+    `) as Record<string, unknown>[];
+
+    return rows.map((r) => ({
+      channelId,
+      slackUserId: r.slack_user_id as string,
+      connected: Boolean(r.connected),
+      remindEnabled: Boolean(r.remind_enabled),
+      calendarStatus: r.calendar_status === "revoked" ? "revoked" : "ok",
+      calendarId: (r.calendar_id as string) || this.defaultCalendarId,
+      displayName: (r.display_name as string | null) ?? undefined,
+    }));
+  }
+
+  async listChannelRemindMembers(channelId: string): Promise<RemindMember[]> {
+    await this.init();
+    const rows = (await this.sql`
+      SELECT cm.slack_user_id,
              t.refresh_token,
              COALESCE(s.calendar_id, ${this.defaultCalendarId}) AS calendar_id,
              s.display_name
-      FROM tokens t
-      LEFT JOIN remind_settings s ON s.slack_user_id = t.slack_user_id
-      WHERE COALESCE(s.remind_enabled, TRUE) = TRUE
+      FROM channel_members cm
+      JOIN tokens t               ON t.slack_user_id = cm.slack_user_id
+      LEFT JOIN remind_settings s ON s.slack_user_id = cm.slack_user_id
+      WHERE cm.channel_id = ${channelId}
+        AND COALESCE(s.remind_enabled, TRUE) = TRUE
         AND COALESCE(s.calendar_status, 'ok') = 'ok'
-      ORDER BY t.slack_user_id
+      ORDER BY cm.slack_user_id
     `) as Record<string, string | null>[];
 
     return rows.map((r) => ({
@@ -105,30 +200,60 @@ export class NeonRemindStore implements RemindStore {
     }));
   }
 
-  async listSettings(): Promise<RemindSettings[]> {
+  async setChannelMembers(channelId: string, slackUserIds: string[]): Promise<void> {
     await this.init();
-    // 設定行が無い連携済みメンバーも「既定で有効」として一覧に出す
-    const rows = (await this.sql`
-      SELECT COALESCE(s.slack_user_id, t.slack_user_id) AS slack_user_id,
-             s.display_name,
-             COALESCE(s.remind_enabled, TRUE)   AS remind_enabled,
-             COALESCE(s.calendar_id, ${this.defaultCalendarId}) AS calendar_id,
-             COALESCE(s.calendar_status, 'ok')  AS calendar_status,
-             (t.slack_user_id IS NOT NULL)      AS connected
-      FROM remind_settings s
-      FULL OUTER JOIN tokens t ON s.slack_user_id = t.slack_user_id
-      ORDER BY 1
-    `) as Record<string, unknown>[];
+    const json = JSON.stringify(slackUserIds.map((id) => ({ slack_user_id: id })));
 
-    return rows.map((r) => ({
-      slackUserId: r.slack_user_id as string,
-      displayName: (r.display_name as string | null) ?? undefined,
-      remindEnabled: Boolean(r.remind_enabled),
-      calendarId: (r.calendar_id as string) || this.defaultCalendarId,
-      calendarStatus: r.calendar_status === "revoked" ? "revoked" : "ok",
-      connected: Boolean(r.connected),
-    }));
+    // 先に追加 → あとで対象外を削除。順序を逆にすると一瞬「対象0人」の状態ができる
+    if (slackUserIds.length > 0) {
+      await this.sql`
+        INSERT INTO channel_members (channel_id, slack_user_id)
+        SELECT ${channelId}, x.slack_user_id
+        FROM jsonb_to_recordset(${json}::jsonb) AS x(slack_user_id text)
+        ON CONFLICT (channel_id, slack_user_id) DO NOTHING
+      `;
+    }
+
+    await this.sql`
+      DELETE FROM channel_members
+      WHERE channel_id = ${channelId}
+        AND slack_user_id NOT IN (
+          SELECT x.slack_user_id FROM jsonb_to_recordset(${json}::jsonb) AS x(slack_user_id text)
+        )
+    `;
   }
+
+  async addChannelMembers(channelId: string, slackUserIds: string[]): Promise<void> {
+    await this.init();
+    if (slackUserIds.length === 0) return;
+    const json = JSON.stringify(slackUserIds.map((id) => ({ slack_user_id: id })));
+
+    await this.sql`
+      INSERT INTO channel_members (channel_id, slack_user_id)
+      SELECT ${channelId}, x.slack_user_id
+      FROM jsonb_to_recordset(${json}::jsonb) AS x(slack_user_id text)
+      ON CONFLICT (channel_id, slack_user_id) DO NOTHING
+    `;
+  }
+
+  async removeChannelMembers(
+    channelId: string,
+    slackUserIds: string[],
+  ): Promise<void> {
+    await this.init();
+    if (slackUserIds.length === 0) return;
+    const json = JSON.stringify(slackUserIds.map((id) => ({ slack_user_id: id })));
+
+    await this.sql`
+      DELETE FROM channel_members cm
+      USING jsonb_to_recordset(${json}::jsonb) AS x(slack_user_id text)
+      WHERE cm.channel_id = ${channelId} AND cm.slack_user_id = x.slack_user_id
+    `;
+  }
+
+  // -------------------------------------------------------------------------
+  // メンバー個人設定
+  // -------------------------------------------------------------------------
 
   async saveSettings(
     settings: { slackUserId: string } & Partial<Omit<RemindSettings, "slackUserId">>,
@@ -175,51 +300,20 @@ export class NeonRemindStore implements RemindStore {
     `;
   }
 
-  async listNotificationTargets(): Promise<NotificationTarget[]> {
+  async hasGoogleToken(slackUserId: string): Promise<boolean> {
     await this.init();
     const rows = (await this.sql`
-      SELECT target_id, label, enabled FROM notification_targets
-      WHERE enabled = TRUE
-      ORDER BY target_id
-    `) as Record<string, unknown>[];
-
-    return rows.map((r) => ({
-      targetId: r.target_id as string,
-      label: (r.label as string | null) ?? undefined,
-      enabled: Boolean(r.enabled),
-    }));
+      SELECT 1 FROM tokens WHERE slack_user_id = ${slackUserId}
+    `) as unknown[];
+    return rows.length > 0;
   }
 
-  async setNotificationTargets(
-    targets: { targetId: string; label?: string }[],
-  ): Promise<void> {
-    await this.init();
-    const json = JSON.stringify(
-      targets.map((t) => ({ target_id: t.targetId, label: t.label ?? null })),
-    );
-
-    // 先に有効化 → あとで対象外を無効化。逆順にすると一瞬「通知先ゼロ」の状態ができる
-    if (targets.length > 0) {
-      await this.sql`
-        INSERT INTO notification_targets (target_id, label, enabled)
-        SELECT x.target_id, x.label, TRUE
-        FROM jsonb_to_recordset(${json}::jsonb) AS x(target_id text, label text)
-        ON CONFLICT (target_id) DO UPDATE SET
-          enabled = TRUE,
-          label = COALESCE(EXCLUDED.label, notification_targets.label)
-      `;
-    }
-
-    await this.sql`
-      UPDATE notification_targets SET enabled = FALSE
-      WHERE enabled = TRUE
-        AND target_id NOT IN (
-          SELECT x.target_id FROM jsonb_to_recordset(${json}::jsonb) AS x(target_id text)
-        )
-    `;
-  }
+  // -------------------------------------------------------------------------
+  // 送信ログ
+  // -------------------------------------------------------------------------
 
   async claimSends(
+    channelId: string,
     shifts: ShiftEntry[],
     timing: RemindTiming,
   ): Promise<ShiftEntry[]> {
@@ -237,55 +331,58 @@ export class NeonRemindStore implements RemindStore {
 
     const rows = (await this.sql`
       INSERT INTO notification_logs
-        (slack_user_id, event_uid, timing, shift_start, shift_end, status)
-      SELECT x.slack_user_id, x.event_uid, ${timing}, x.shift_start, x.shift_end, 'pending'
+        (channel_id, slack_user_id, event_uid, timing, shift_start, shift_end, status)
+      SELECT ${channelId}, x.slack_user_id, x.event_uid, ${timing},
+             x.shift_start, x.shift_end, 'pending'
       FROM jsonb_to_recordset(${json}::jsonb)
         AS x(slack_user_id text, event_uid text, shift_start timestamptz, shift_end timestamptz)
-      ON CONFLICT (slack_user_id, event_uid, timing) DO NOTHING
+      ON CONFLICT (channel_id, slack_user_id, event_uid, timing) DO NOTHING
       RETURNING slack_user_id, event_uid
     `) as Record<string, string>[];
 
-    const claimed = new Set(rows.map((r) => `${r.slack_user_id} ${r.event_uid}`));
-    return shifts.filter((s) => claimed.has(`${s.slackUserId} ${s.eventUid}`));
+    const claimed = new Set(rows.map((r) => `${r.slack_user_id} ${r.event_uid}`));
+    return shifts.filter((s) => claimed.has(`${s.slackUserId} ${s.eventUid}`));
   }
 
-  async markSent(shifts: ShiftEntry[], timing: RemindTiming): Promise<void> {
+  async markSent(
+    channelId: string,
+    shifts: ShiftEntry[],
+    timing: RemindTiming,
+  ): Promise<void> {
     await this.init();
     if (shifts.length === 0) return;
-    const json = keysJson(shifts);
 
     await this.sql`
       UPDATE notification_logs l
       SET status = 'sent', sent_at = now()
-      FROM jsonb_to_recordset(${json}::jsonb) AS x(slack_user_id text, event_uid text)
-      WHERE l.slack_user_id = x.slack_user_id
+      FROM jsonb_to_recordset(${keysJson(shifts)}::jsonb)
+        AS x(slack_user_id text, event_uid text)
+      WHERE l.channel_id = ${channelId}
+        AND l.slack_user_id = x.slack_user_id
         AND l.event_uid = x.event_uid
         AND l.timing = ${timing}
     `;
   }
 
-  async releaseClaims(shifts: ShiftEntry[], timing: RemindTiming): Promise<void> {
+  async releaseClaims(
+    channelId: string,
+    shifts: ShiftEntry[],
+    timing: RemindTiming,
+  ): Promise<void> {
     await this.init();
     if (shifts.length === 0) return;
-    const json = keysJson(shifts);
 
     // 送信できなかった予約だけ消す。既に 'sent' の行は触らない
     await this.sql`
       DELETE FROM notification_logs l
-      USING jsonb_to_recordset(${json}::jsonb) AS x(slack_user_id text, event_uid text)
-      WHERE l.slack_user_id = x.slack_user_id
+      USING jsonb_to_recordset(${keysJson(shifts)}::jsonb)
+        AS x(slack_user_id text, event_uid text)
+      WHERE l.channel_id = ${channelId}
+        AND l.slack_user_id = x.slack_user_id
         AND l.event_uid = x.event_uid
         AND l.timing = ${timing}
         AND l.status = 'pending'
     `;
-  }
-
-  async hasGoogleToken(slackUserId: string): Promise<boolean> {
-    await this.init();
-    const rows = (await this.sql`
-      SELECT 1 FROM tokens WHERE slack_user_id = ${slackUserId}
-    `) as unknown[];
-    return rows.length > 0;
   }
 }
 

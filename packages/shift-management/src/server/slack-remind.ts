@@ -32,23 +32,27 @@ export async function slackApi(
 
 /**
  * チャンネルへ投稿する。失敗時は1回だけリトライしてから諦める。
- * @returns 送信できたら true
+ * @param blocks Block Kit のブロック（ボタン付きメッセージ用）。text はフォールバック表示に使われる
  */
 export async function postMessage(
   botToken: string,
   channel: string,
   text: string,
+  blocks?: unknown[],
   sleep: (ms: number) => Promise<void> = defaultSleep,
 ): Promise<{ ok: boolean; error?: string }> {
+  const payload: Record<string, unknown> = {
+    channel,
+    text,
+    // メンションを本文に含めるので、リンク展開でメッセージが伸びるのを抑える
+    unfurl_links: false,
+    unfurl_media: false,
+  };
+  if (blocks) payload.blocks = blocks;
+
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const result = await slackApi(botToken, "chat.postMessage", {
-        channel,
-        text,
-        // メンションを本文に含めるので、リンク展開でメッセージが伸びるのを抑える
-        unfurl_links: false,
-        unfurl_media: false,
-      });
+      const result = await slackApi(botToken, "chat.postMessage", payload);
       if (result.ok) return { ok: true };
       // channel_not_found / not_in_channel などはリトライしても直らない
       if (result.error && !RETRYABLE_ERRORS.has(result.error)) {
@@ -86,11 +90,91 @@ export async function respondEphemeral(
   responseUrl: string,
   text: string,
 ): Promise<void> {
+  await respondWebhook(responseUrl, { response_type: "ephemeral", text });
+}
+
+/**
+ * response_url へ任意のペイロードを送る。
+ * `{ replace_original: true }` を付けるとボタン付きメッセージを差し替えられる。
+ */
+export async function respondWebhook(
+  responseUrl: string,
+  body: Record<string, unknown>,
+): Promise<void> {
   await fetch(responseUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json; charset=utf-8" },
-    body: JSON.stringify({ response_type: "ephemeral", text }),
+    body: JSON.stringify(body),
   });
+}
+
+/** Bot自身のユーザーID。member_joined_channel が「Bot自身の参加」かの判定に使う */
+export async function getBotUserId(botToken: string): Promise<string | null> {
+  const result = await slackApi(botToken, "auth.test", {});
+  return result.ok ? ((result.user_id as string) ?? null) : null;
+}
+
+/** チャンネルの参加者ID一覧（ページングを畳む） */
+export async function listConversationMembers(
+  botToken: string,
+  channelId: string,
+): Promise<string[]> {
+  const members: string[] = [];
+  let cursor: string | undefined;
+
+  // 想定は多くて数百人。無限ループを避けるため上限を切る
+  for (let page = 0; page < 10; page++) {
+    const result = await slackApi(botToken, "conversations.members", {
+      channel: channelId,
+      limit: 200,
+      ...(cursor ? { cursor } : {}),
+    });
+    if (!result.ok) break;
+
+    members.push(...((result.members as string[]) ?? []));
+    cursor = (result.response_metadata as { next_cursor?: string } | undefined)?.next_cursor;
+    if (!cursor) break;
+  }
+
+  return members;
+}
+
+/**
+ * Bot・削除済みユーザーを除いた「人間」のIDだけ返す。
+ *
+ * users.info をメンバー分呼ぶとレート制限に当たりやすいので、users.list を
+ * 1〜数回で読み切ってから突き合わせる。
+ */
+export async function filterHumanUsers(
+  botToken: string,
+  userIds: string[],
+): Promise<string[]> {
+  if (userIds.length === 0) return [];
+
+  const excluded = new Set<string>();
+  let cursor: string | undefined;
+  let fetched = false;
+
+  for (let page = 0; page < 10; page++) {
+    const result = await slackApi(botToken, "users.list", {
+      limit: 200,
+      ...(cursor ? { cursor } : {}),
+    });
+    if (!result.ok) break;
+    fetched = true;
+
+    for (const u of (result.members as { id: string; is_bot?: boolean; deleted?: boolean }[]) ?? []) {
+      if (u.is_bot || u.deleted || u.id === "USLACKBOT") excluded.add(u.id);
+    }
+    cursor = (result.response_metadata as { next_cursor?: string } | undefined)?.next_cursor;
+    if (!cursor) break;
+  }
+
+  // users.list が取れなかった場合（スコープ不足など）は絞り込まずそのまま返す。
+  // Modal の初期値なので、人が見て外せばよい
+  if (!fetched) return userIds;
+
+  return userIds.filter((id) => !excluded.has(id));
 }
 
 function defaultSleep(ms: number): Promise<void> {

@@ -1,19 +1,22 @@
-import type { RemindMember, RemindTiming, ShiftEntry } from "../remind/types";
+import type {
+  ChannelMember,
+  RemindMember,
+  RemindTiming,
+  ShiftEntry,
+} from "../remind/types";
 
-/** メンバーごとのリマインド設定。refresh_token は持たない（既存 tokens テーブルを参照する） */
+/** メンバーごとの個人設定。チャンネルへの登録とは別で、本人都合の停止・カレンダー指定に使う */
 export interface RemindSettings {
   slackUserId: string;
   displayName?: string;
   remindEnabled: boolean;
   calendarId: string;
   calendarStatus: "ok" | "revoked";
-  /** Google Calendar 連携済みか（tokens テーブルに行があるか）。一覧表示用 */
-  connected?: boolean;
 }
 
-/** 通知先（Slackチャンネル） */
+/** 通知先チャンネル。Botを招待した時点で登録され、Botを外すと解除される */
 export interface NotificationTarget {
-  targetId: string;
+  channelId: string;
   label?: string;
   enabled: boolean;
 }
@@ -28,14 +31,41 @@ export interface RemindStore {
   /** テーブル作成・列追加。冪等に何度呼んでもよい */
   init(): Promise<void>;
 
-  /**
-   * 通知対象メンバー（Google連携済み ∧ remind_enabled ∧ calendar_status='ok'）。
-   * 設定行が無いメンバーは「有効・primary」の既定値で対象に含める。
-   */
-  listRemindMembers(): Promise<RemindMember[]>;
+  // -------------------------------------------------------------------------
+  // 通知先チャンネル
+  // -------------------------------------------------------------------------
 
-  /** 設定一覧（設定UI・/shift-remind list 用） */
-  listSettings(): Promise<RemindSettings[]>;
+  /** 有効な通知先チャンネル */
+  listNotificationTargets(): Promise<NotificationTarget[]>;
+
+  /** 通知先として登録（Bot招待時）。すでにあれば有効に戻す */
+  addNotificationTarget(channelId: string, label?: string): Promise<void>;
+
+  /** 通知先を解除（Bot退出時）。登録メンバーは残すので、再招待すれば復活する */
+  disableNotificationTarget(channelId: string): Promise<void>;
+
+  // -------------------------------------------------------------------------
+  // チャンネルごとの対象メンバー
+  // -------------------------------------------------------------------------
+
+  /** そのチャンネルの対象メンバー全員（未連携・停止中も含む。設定UI・警告用） */
+  listChannelMembers(channelId: string): Promise<ChannelMember[]>;
+
+  /** そのチャンネルで実際にカレンダーを読むメンバー（連携済み ∧ 有効 ∧ status=ok） */
+  listChannelRemindMembers(channelId: string): Promise<RemindMember[]>;
+
+  /** 対象メンバーを渡された集合に置き換える（Modalの保存） */
+  setChannelMembers(channelId: string, slackUserIds: string[]): Promise<void>;
+
+  /** 対象メンバーを追加する（あとから参加した人のワンクリック追加） */
+  addChannelMembers(channelId: string, slackUserIds: string[]): Promise<void>;
+
+  /** 対象メンバーを外す */
+  removeChannelMembers(channelId: string, slackUserIds: string[]): Promise<void>;
+
+  // -------------------------------------------------------------------------
+  // メンバー個人設定
+  // -------------------------------------------------------------------------
 
   /** 設定の upsert。渡されなかった項目は既存値（または既定値）を保つ */
   saveSettings(
@@ -45,25 +75,35 @@ export interface RemindStore {
   /** トークン失効の記録（401/403を受けたとき） */
   markCalendarStatus(slackUserId: string, status: "ok" | "revoked"): Promise<void>;
 
-  /** 有効な通知先チャンネル */
-  listNotificationTargets(): Promise<NotificationTarget[]>;
+  /** そのSlackユーザーがGoogle連携済みか */
+  hasGoogleToken(slackUserId: string): Promise<boolean>;
 
-  /** 通知先を渡された集合に置き換える */
-  setNotificationTargets(targets: { targetId: string; label?: string }[]): Promise<void>;
+  // -------------------------------------------------------------------------
+  // 送信ログ（二重送信防止 & 監査）
+  // -------------------------------------------------------------------------
 
   /**
-   * 送信枠を予約する。UNIQUE (slack_user_id, event_uid, timing) により、
+   * 送信枠を予約する。UNIQUE (channel_id, slack_user_id, event_uid, timing) により、
    * cron が二重起動しても2回目は0件になる（アプリ側のフラグ判定に頼らない）。
    * @returns 今回新しく予約できた（= まだ送っていない）シフトだけ
    */
-  claimSends(shifts: ShiftEntry[], timing: RemindTiming): Promise<ShiftEntry[]>;
+  claimSends(
+    channelId: string,
+    shifts: ShiftEntry[],
+    timing: RemindTiming,
+  ): Promise<ShiftEntry[]>;
 
   /** 送信成功を確定する */
-  markSent(shifts: ShiftEntry[], timing: RemindTiming): Promise<void>;
+  markSent(
+    channelId: string,
+    shifts: ShiftEntry[],
+    timing: RemindTiming,
+  ): Promise<void>;
 
   /** 送信失敗時に予約を解放する（次回の実行で再送できるようにする） */
-  releaseClaims(shifts: ShiftEntry[], timing: RemindTiming): Promise<void>;
-
-  /** そのSlackユーザーがGoogle連携済みか（設定UIの警告表示に使う） */
-  hasGoogleToken(slackUserId: string): Promise<boolean>;
+  releaseClaims(
+    channelId: string,
+    shifts: ShiftEntry[],
+    timing: RemindTiming,
+  ): Promise<void>;
 }
