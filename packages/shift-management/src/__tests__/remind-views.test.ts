@@ -9,7 +9,12 @@ import {
   parseActionValue,
   parseMembersSubmission,
 } from "../remind/views";
-import { connectUrl, formatConnectRequest, formatMemberAdded } from "../remind/format-message";
+import {
+  connectUrl,
+  formatConnectDm,
+  formatConnectNotice,
+  formatMemberAdded,
+} from "../remind/format-message";
 
 describe("対象メンバー選択 Modal", () => {
   it("channel_id を private_metadata で持ち回る", () => {
@@ -95,22 +100,37 @@ describe("カレンダー連携のお願い", () => {
     );
   });
 
-  it("未連携メンバーごとにリンクを並べる", () => {
-    const text = formatConnectRequest(["U1", "U2"], "https://example.com")!;
-    expect(text).toContain("<@U1> → https://example.com/api/auth/google?slack_user_id=U1");
-    expect(text).toContain("<@U2> → https://example.com/api/auth/google?slack_user_id=U2");
+  it("DM本文には本人専用のリンクと共有禁止の注意を入れる", () => {
+    const text = formatConnectDm("U1", "https://example.com");
+    expect(text).toContain("https://example.com/api/auth/google?slack_user_id=U1");
+    expect(text).toContain("あなた専用");
   });
 
-  it("未連携が0人なら何も出さない", () => {
-    expect(formatConnectRequest([], "https://example.com")).toBeNull();
+  it("チャンネルへの通知にはリンクを含めない", () => {
+    const notice = formatConnectNotice(["U1", "U2"], [])!;
+    expect(notice).toContain("<@U1>");
+    expect(notice).toContain("DMで連携リンクを送りました");
+    expect(notice).not.toContain("slack_user_id");
   });
 
-  it("追加時のメッセージに未連携なら連携リンクを添える", () => {
-    const withLink = formatMemberAdded(["U1"], ["U1"], "https://example.com");
-    expect(withLink).toContain("対象に追加しました");
-    expect(withLink).toContain("slack_user_id=U1");
+  it("DM失敗は im:write スコープの確認を促す", () => {
+    const notice = formatConnectNotice([], ["U3"])!;
+    expect(notice).toContain("<@U3>");
+    expect(notice).toContain("im:write");
+  });
 
-    const withoutLink = formatMemberAdded(["U1"], [], "https://example.com");
-    expect(withoutLink).not.toContain("slack_user_id");
+  it("送る相手がいなければ何も出さない", () => {
+    expect(formatConnectNotice([], [])).toBeNull();
+  });
+
+  it("追加時のメッセージにもリンクは載せない（DMで別送するため）", () => {
+    const text = formatMemberAdded(["U1"], ["U1"], []);
+    expect(text).toContain("対象に追加しました");
+    expect(text).toContain("DMで連携リンクを送りました");
+    expect(text).not.toContain("slack_user_id");
+
+    const connected = formatMemberAdded(["U1"], [], []);
+    expect(connected).toContain("対象に追加しました");
+    expect(connected).not.toContain("DM");
   });
 });

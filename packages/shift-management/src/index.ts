@@ -59,7 +59,8 @@ export {
   formatRemindMessage,
   formatRange,
   formatWarningMessage,
-  formatConnectRequest,
+  formatConnectDm,
+  formatConnectNotice,
   formatMemberAdded,
   connectUrl,
 } from "./remind/format-message";
@@ -92,15 +93,18 @@ export {
   openView,
   respondEphemeral,
   respondWebhook,
+  openDirectMessage,
   getBotUserId,
   listConversationMembers,
   filterHumanUsers,
+  requestCalendarConnect,
   runRemind,
 } from "./server";
 export type {
   RunRemindOptions,
   RunRemindResult,
   ChannelRunResult,
+  ConnectRequestResult,
   RemindStore,
   RemindSettings,
   NotificationTarget,

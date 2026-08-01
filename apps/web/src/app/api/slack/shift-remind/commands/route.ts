@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   SHIFT_TITLE_KEYWORD,
   formatMemberAdded,
+  requestCalendarConnect,
   resolveTargetDate,
   respondEphemeral,
   runRemind,
@@ -91,7 +92,12 @@ async function handleAdd(channelId: string, rest: string[]) {
     .filter((m) => userIds.includes(m.slackUserId) && !m.connected)
     .map((m) => m.slackUserId);
 
-  return ephemeral(formatMemberAdded(userIds, unconnected, remindEnv.appUrl ?? ""));
+  // 連携リンクは本人へDMで送る（チャンネルやコマンド応答には出さない）
+  const connect = remindEnv.appUrl
+    ? await requestCalendarConnect(remindEnv.botToken, unconnected, remindEnv.appUrl)
+    : { dmSent: [], dmFailed: [] };
+
+  return ephemeral(formatMemberAdded(userIds, connect.dmSent, connect.dmFailed));
 }
 
 async function handleRemove(channelId: string, rest: string[]) {

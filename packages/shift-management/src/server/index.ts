@@ -22,10 +22,13 @@ export {
   openView,
   respondEphemeral,
   respondWebhook,
+  openDirectMessage,
   getBotUserId,
   listConversationMembers,
   filterHumanUsers,
 } from "./slack-remind";
+export { requestCalendarConnect } from "./remind-connect";
+export type { ConnectRequestResult } from "./remind-connect";
 export { runRemind } from "./remind-runner";
 export type {
   RunRemindOptions,

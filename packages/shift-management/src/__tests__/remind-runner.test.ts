@@ -27,6 +27,9 @@ vi.mock("../server/remind-calendar", () => ({
 vi.mock("../server/slack-remind", () => ({
   postMessage: (token: string, channel: string, text: string) =>
     postMessage(token, channel, text),
+  // DMは conversations.open で開いたチャンネルへ送る。テストでは "DM:<userId>" を返す
+  openDirectMessage: (_token: string, slackUserId: string) =>
+    Promise.resolve(`DM:${slackUserId}`),
 }));
 
 const { runRemind } = await import("../server/remind-runner");
@@ -298,7 +301,7 @@ describe("runRemind（チャンネル単位）", () => {
 });
 
 describe("カレンダー未連携メンバーへの連携依頼", () => {
-  it("前日夜は未連携メンバーへ連携リンクを投稿する", async () => {
+  it("前日夜は未連携メンバー本人にDMで連携リンクを送る", async () => {
     const store = new FakeStore({ C1: ["U1", "U2"] }, ["U2"]);
     getShiftsForMembers.mockResolvedValue([ok("U1")]);
 
@@ -308,13 +311,48 @@ describe("カレンダー未連携メンバーへの連携依頼", () => {
     });
 
     expect(result.channels[0].unconnected).toEqual(["U2"]);
-    expect(result.channels[0].connectRequestSent).toBe(true);
+    expect(result.channels[0].connectDmSent).toEqual(["U2"]);
 
     const connectCall = postMessage.mock.calls.find((c) =>
       c[2].includes("api/auth/google?slack_user_id=U2"),
     );
     expect(connectCall).toBeDefined();
-    expect(connectCall![1]).toBe("C1");
+    // 送信先はチャンネルではなくDM
+    expect(connectCall![1]).toBe("DM:U2");
+  });
+
+  it("連携リンクをチャンネルに公開投稿しない（他人のリンクを開く事故を防ぐ）", async () => {
+    const store = new FakeStore({ C1: ["U1", "U2"] }, ["U2"]);
+    getShiftsForMembers.mockResolvedValue([ok("U1")]);
+
+    await runRemind({ ...baseOpts(store), appUrl: "https://example.com" });
+
+    const channelPosts = postMessage.mock.calls.filter((c) => c[1] === "C1");
+    expect(channelPosts.length).toBeGreaterThan(0);
+    for (const call of channelPosts) {
+      expect(call[2]).not.toContain("slack_user_id=");
+    }
+  });
+
+  it("DM送信に失敗したら警告に残す", async () => {
+    const store = new FakeStore({ C1: ["U1", "U2"] }, ["U2"]);
+    getShiftsForMembers.mockResolvedValue([ok("U1")]);
+    postMessage.mockImplementation((_t, channel) =>
+      Promise.resolve(
+        channel === "DM:U2" ? { ok: false, error: "channel_not_found" } : { ok: true },
+      ),
+    );
+
+    const result = await runRemind({
+      ...baseOpts(store),
+      appUrl: "https://example.com",
+    });
+
+    expect(result.channels[0].connectDmFailed).toEqual(["U2"]);
+    expect(result.channels[0].connectDmSent).toEqual([]);
+    expect(result.warnings.some((w) => w.includes("im:write"))).toBe(true);
+    // DMが失敗してもシフト通知自体は送る
+    expect(result.channels[0].sent).toBe(true);
   });
 
   it("当日朝は連携依頼を出さない（1日2回だと煩いため）", async () => {
@@ -327,7 +365,7 @@ describe("カレンダー未連携メンバーへの連携依頼", () => {
       appUrl: "https://example.com",
     });
 
-    expect(result.channels[0].connectRequestSent).toBe(false);
+    expect(result.channels[0].connectDmSent).toEqual([]);
     expect(
       postMessage.mock.calls.some((c) => c[2].includes("api/auth/google")),
     ).toBe(false);
@@ -338,7 +376,7 @@ describe("カレンダー未連携メンバーへの連携依頼", () => {
     getShiftsForMembers.mockResolvedValue([ok("U1")]);
 
     const result = await runRemind(baseOpts(store));
-    expect(result.channels[0].connectRequestSent).toBe(false);
+    expect(result.channels[0].connectDmSent).toEqual([]);
   });
 
   it("未連携メンバーはカレンダー取得の対象に含めない", async () => {

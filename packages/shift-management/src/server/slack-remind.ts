@@ -108,6 +108,24 @@ export async function respondWebhook(
   });
 }
 
+/**
+ * ユーザーとのDMチャンネルを開き、そのチャンネルIDを返す（`im:write` が必要）。
+ *
+ * chat.postMessage に生のユーザーIDを渡しても多くの場合は届くが、
+ * conversations.open を通した方がワークスペース設定による差が出にくい。
+ * 失敗したらユーザーIDをそのまま返して postMessage 側に任せる。
+ */
+export async function openDirectMessage(
+  botToken: string,
+  slackUserId: string,
+): Promise<string> {
+  const result = await slackApi(botToken, "conversations.open", {
+    users: slackUserId,
+  });
+  const channel = (result.channel as { id?: string } | undefined)?.id;
+  return result.ok && channel ? channel : slackUserId;
+}
+
 /** Bot自身のユーザーID。member_joined_channel が「Bot自身の参加」かの判定に使う */
 export async function getBotUserId(botToken: string): Promise<string | null> {
   const result = await slackApi(botToken, "auth.test", {});

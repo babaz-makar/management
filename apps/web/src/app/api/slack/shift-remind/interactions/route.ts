@@ -4,11 +4,12 @@ import {
   ACTION_DISMISS,
   ACTION_OPEN_MEMBERS,
   MEMBERS_CALLBACK_ID,
-  formatConnectRequest,
+  formatConnectNotice,
   formatMemberAdded,
   parseActionValue,
   parseMembersSubmission,
   postMessage,
+  requestCalendarConnect,
   respondWebhook,
   verifySlackRequest,
 } from "@management/shift-management";
@@ -84,18 +85,26 @@ async function handleAction(payload: {
     const store = getRemindStore();
     await store.addChannelMembers(parsed.channelId, [parsed.slackUserId]);
 
+    // 未連携なら連携リンクを**本人へDM**で送る。チャンネルには結果だけ出す
     const connected = await store.hasGoogleToken(parsed.slackUserId);
-    const text = formatMemberAdded(
-      [parsed.slackUserId],
-      connected ? [] : [parsed.slackUserId],
-      remindEnv.appUrl ?? "",
-    );
+    const connect =
+      connected || !remindEnv.appUrl
+        ? { dmSent: [], dmFailed: [] }
+        : await requestCalendarConnect(
+            remindEnv.botToken,
+            [parsed.slackUserId],
+            remindEnv.appUrl,
+          );
 
     // ボタン付きメッセージを結果に差し替える（押したあとにボタンが残らないように）
     if (payload.response_url) {
       await respondWebhook(payload.response_url, {
         replace_original: true,
-        text: remindEnv.appUrl ? text : `:white_check_mark: <@${parsed.slackUserId}> を対象に追加しました。`,
+        text: formatMemberAdded(
+          [parsed.slackUserId],
+          connect.dmSent,
+          connect.dmFailed,
+        ),
       });
     }
     return NextResponse.json({});
@@ -149,7 +158,11 @@ async function handleSubmission(payload: {
   return NextResponse.json({});
 }
 
-/** 保存結果をチャンネルに投稿し、未連携メンバーには連携をお願いする */
+/**
+ * 保存結果をチャンネルに投稿する。
+ * 未連携メンバーへの連携リンクは**本人へのDM**で送り、チャンネルには結果だけ出す
+ * （リンクを公開すると他人のリンクを開いて別人として紐づく事故が起きる）。
+ */
 async function announceResult(
   channelId: string,
   slackUserIds: string[],
@@ -167,15 +180,17 @@ async function announceResult(
   const members = await store.listChannelMembers(channelId);
   const unconnected = members.filter((m) => !m.connected).map((m) => m.slackUserId);
 
+  const connect = remindEnv.appUrl
+    ? await requestCalendarConnect(remindEnv.botToken, unconnected, remindEnv.appUrl)
+    : { dmSent: [], dmFailed: [] };
+
   const lines = [
     `:white_check_mark: シフトリマインドの対象メンバーを ${slackUserIds.length}人 に設定しました。`,
     slackUserIds.map((id) => `<@${id}>`).join(" "),
   ];
 
-  const request = remindEnv.appUrl
-    ? formatConnectRequest(unconnected, remindEnv.appUrl)
-    : null;
-  if (request) lines.push("", request);
+  const notice = formatConnectNotice(connect.dmSent, connect.dmFailed);
+  if (notice) lines.push("", notice);
 
   await postMessage(remindEnv.botToken, channelId, lines.join("\n"));
 }

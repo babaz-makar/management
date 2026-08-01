@@ -1,10 +1,10 @@
 import {
-  formatConnectRequest,
   formatRemindMessage,
   formatWarningMessage,
 } from "../remind/format-message";
 import type { RemindMember, RemindTiming, ShiftEntry } from "../remind/types";
 import { getShiftsForMembers } from "./remind-calendar";
+import { requestCalendarConnect } from "./remind-connect";
 import { postMessage } from "./slack-remind";
 import type { RemindStore } from "./remind-store";
 
@@ -42,8 +42,10 @@ export interface ChannelRunResult {
   message: string | null;
   /** Google未連携のメンバー */
   unconnected: string[];
-  /** 連携依頼を投稿したか */
-  connectRequestSent: boolean;
+  /** 連携依頼のDMを送れた相手 */
+  connectDmSent: string[];
+  /** 連携依頼のDMを送れなかった相手 */
+  connectDmFailed: string[];
 }
 
 export interface RunRemindResult {
@@ -62,7 +64,7 @@ export interface RunRemindResult {
  *    （同じ人が複数チャンネルに登録されていてもAPI呼び出しは1回）
  * 3. チャンネルごとに送信済みログと照合して未送信分だけ予約
  * 4. Slackへ投稿。成功なら確定、失敗なら予約を解放して次回に回す
- * 5. 未連携メンバーがいれば（前日夜のみ）カレンダー連携をお願いする
+ * 5. 未連携メンバーがいれば（前日夜のみ）本人へDMでカレンダー連携をお願いする
  */
 export async function runRemind(opts: RunRemindOptions): Promise<RunRemindResult> {
   const { store, timing, date } = opts;
@@ -120,7 +122,15 @@ export async function runRemind(opts: RunRemindOptions): Promise<RunRemindResult
   const channels: ChannelRunResult[] = [];
   for (const c of perChannel) {
     channels.push(
-      await runForChannel(opts, c.channelId, c.all, c.active, shiftsByUser, errors),
+      await runForChannel(
+        opts,
+        c.channelId,
+        c.all,
+        c.active,
+        shiftsByUser,
+        errors,
+        warnings,
+      ),
     );
   }
 
@@ -136,6 +146,7 @@ async function runForChannel(
   activeMembers: RemindMember[],
   shiftsByUser: Map<string, ShiftEntry[]>,
   errors: string[],
+  warnings: string[],
 ): Promise<ChannelRunResult> {
   const { store, timing, date } = opts;
 
@@ -151,7 +162,8 @@ async function runForChannel(
     sent: false,
     message: null,
     unconnected,
-    connectRequestSent: false,
+    connectDmSent: [],
+    connectDmFailed: [],
   };
 
   if (opts.dryRun) {
@@ -168,27 +180,38 @@ async function runForChannel(
     };
   }
 
-  // 未連携メンバーへの連携依頼。1日2回だと煩いので前日夜だけ出す
-  const connectRequestSent = await requestConnect(opts, channelId, unconnected);
+  // 未連携メンバーへの連携依頼。本人へDMで送る（チャンネルには出さない）。
+  // 1日2回だと煩いので前日夜だけ
+  const connect =
+    timing === "prev_night" && opts.appUrl
+      ? await requestCalendarConnect(opts.botToken, unconnected, opts.appUrl)
+      : { dmSent: [], dmFailed: [] };
+
+  if (connect.dmFailed.length > 0) {
+    warnings.push(
+      `${connect.dmFailed.map((id) => `<@${id}>`).join(" ")} へカレンダー連携のDMを送れませんでした（Botの \`im:write\` スコープを確認してください）`,
+    );
+  }
+
+  base.connectDmSent = connect.dmSent;
+  base.connectDmFailed = connect.dmFailed;
 
   if (allMembers.length === 0) {
     return {
       ...base,
-      connectRequestSent,
       skippedReason: "対象メンバーが未設定（/shift-remind setup で選んでください）",
     };
   }
 
   if (shifts.length === 0) {
     // 「本日シフトなし」を毎日流すと通知が形骸化するため、対象0人なら黙る
-    return { ...base, connectRequestSent, skippedReason: "対象日にシフトのあるメンバーがいません" };
+    return { ...base, skippedReason: "対象日にシフトのあるメンバーがいません" };
   }
 
   const claimed = await store.claimSends(channelId, shifts, timing);
   if (claimed.length === 0) {
     return {
       ...base,
-      connectRequestSent,
       skippedReason: "すべて送信済み（二重送信を防止しました）",
     };
   }
@@ -201,7 +224,7 @@ async function runForChannel(
   });
   if (!message) {
     await store.releaseClaims(channelId, claimed, timing);
-    return { ...base, connectRequestSent, skippedReason: "通知文が空でした" };
+    return { ...base, skippedReason: "通知文が空でした" };
   }
 
   const sent = await postMessage(opts.botToken, channelId, message);
@@ -218,25 +241,8 @@ async function runForChannel(
     notifiedCount: claimed.length,
     sent: sent.ok,
     message,
-    connectRequestSent,
     skippedReason: sent.ok ? undefined : "送信に失敗",
   };
-}
-
-/** 未連携メンバーにカレンダー連携をお願いする（前日夜のみ） */
-async function requestConnect(
-  opts: RunRemindOptions,
-  channelId: string,
-  unconnected: string[],
-): Promise<boolean> {
-  if (opts.timing !== "prev_night") return false;
-  if (!opts.appUrl || unconnected.length === 0) return false;
-
-  const text = formatConnectRequest(unconnected, opts.appUrl);
-  if (!text) return false;
-
-  const result = await postMessage(opts.botToken, channelId, text);
-  return result.ok;
 }
 
 async function reportToAdmin(

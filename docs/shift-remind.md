@@ -28,12 +28,18 @@ Googleカレンダーの「SHO-SANシフト」予定を読み取り、**前日21
       ↓
 3. ボタンから Modal を開き、不要な人を外して保存
       ↓
-4. 未連携の人にはカレンダー連携リンクが提示される → 各自が認証
+4. 未連携の人には**本人へDMで**カレンダー連携リンクが届く → 各自が認証
       ↓
 5. 前日21時 / 当日8時に、そのチャンネルの対象メンバーのシフトが投稿される
 ```
 
-- **あとから人が参加したとき** … Bot が「対象に追加しますか？」とボタン付きで聞く。押すだけで追加され、未連携なら連携リンクも出る
+> **連携リンクは必ず本人へのDMで送る（チャンネルに公開投稿しない）。**
+> URLの末尾 `slack_user_id` が「誰のカレンダーとして保存するか」を決めているため、
+> 公開すると他人のリンクを開いてしまい、Googleアカウントが別人のSlack IDに紐づく。
+> しかもエラーにならず、シフトがずれて通知されるまで気づけない。
+> チャンネルには「◯◯にDMで連携リンクを送りました」だけを出す。
+
+- **あとから人が参加したとき** … Bot が「対象に追加しますか？」とボタン付きで聞く。押すだけで追加され、未連携なら本人にDMで連携リンクが届く
 - **人が退出したとき** … 自動で対象から外す（見えないチャンネルでメンションされ続けないように）
 - **Bot を外したとき** … そのチャンネルへの通知が止まる。登録メンバーは残るので、再招待すれば選び直し不要
 
@@ -81,7 +87,8 @@ Vercel Cron (0 23 * * * UTC = JST 08:00) ─┴─→ /api/cron/shift-remind?tim
 | [remind/format-message.ts](../packages/shift-management/src/remind/format-message.ts) | 通知文・連携依頼文の組み立て（純関数） |
 | [remind/views.ts](../packages/shift-management/src/remind/views.ts) | Modal / ボタン（Block Kit）と送信値のパース |
 | [server/remind-calendar.ts](../packages/shift-management/src/server/remind-calendar.ts) | Calendar API 呼び出し（リトライ・終日除外・401判定） |
-| [server/slack-remind.ts](../packages/shift-management/src/server/slack-remind.ts) | 専用Botの Slack API ラッパー（投稿・Modal・参加者取得） |
+| [server/slack-remind.ts](../packages/shift-management/src/server/slack-remind.ts) | 専用Botの Slack API ラッパー（投稿・DM・Modal・参加者取得） |
+| [server/remind-connect.ts](../packages/shift-management/src/server/remind-connect.ts) | カレンダー連携リンクを本人へDMで送る |
 | [server/remind-store.ts](../packages/shift-management/src/server/remind-store.ts) | 永続化層のインターフェース |
 | [server/remind-runner.ts](../packages/shift-management/src/server/remind-runner.ts) | 実行本体（取得 → 予約 → 送信 → 確定） |
 | [apps/web/src/lib/remind-store-neon.ts](../apps/web/src/lib/remind-store-neon.ts) | Neon 実装・DDL |
@@ -121,6 +128,7 @@ URL がこのリポジトリの本番URLと違う場合は、貼る前に3箇所
    | `users:read` | Bot・削除済みユーザーを除外して参加者を提案する |
    | `channels:read` | **公開**チャンネルの参加者取得・参加/退出イベント |
    | `groups:read` | **非公開**チャンネルでも使う場合 |
+   | `im:write` | カレンダー連携リンクを本人にDMで送る |
    | `chat:write.public` | 未参加チャンネルにも投稿する場合（通常は招待するので不要） |
 3. **Event Subscriptions** を ON
    - Request URL: `https://<本番URL>/api/slack/shift-remind/events`
@@ -251,7 +259,8 @@ curl -H "Authorization: Bearer $CRON_SECRET" "https://<本番URL>/api/cron/shift
 |---|---|
 | 対象メンバーが未設定のチャンネル | 何も送らない（`/shift-remind setup` を促す） |
 | その日シフトの人が0人 | **通知を送らない**（「本日シフトなし」を毎日流すと通知が形骸化するため） |
-| カレンダー未連携のメンバーがいる | **前日夜のみ**チャンネルに連携リンクを投稿（1日2回だと煩いため）。追加した瞬間にも案内する |
+| カレンダー未連携のメンバーがいる | **本人へDMで**連携リンクを送る。対象に追加した瞬間と、**前日夜のリマインド時のみ**（1日2回だと煩いため）。チャンネルには結果だけ出す |
+| DM送信に失敗した | シフト通知自体は送る。失敗は管理チャンネルへ警告（`im:write` スコープ不足を疑う） |
 | 日跨ぎシフト（22:00-翌6:00） | 開始日基準で当日分。終了時刻に「翌」を付けて表示 |
 | Calendar API 401/403 | `calendar_status='revoked'` に更新して以降スキップ。管理チャンネルに再連携を促す警告 |
 | Calendar API 5xx/タイムアウト | 指数バックオフで2回リトライ。失敗ならそのメンバーだけスキップ＋警告 |
@@ -277,7 +286,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" "https://<本番URL>/api/cron/shift
 
 - [ ] Bot をテストチャンネルに招待して、対象メンバー選択の案内が出る
 - [ ] Modal で保存 → `/shift-remind list` に反映されている
-- [ ] 未連携メンバーに連携リンクが出て、リンクから認証すると `list` が「有効」に変わる
+- [ ] 未連携メンバーに**DMで**連携リンクが届き（チャンネルにはリンクが出ない）、認証すると `list` が「有効」に変わる
 - [ ] あとから人を招待して「対象に追加」ボタンが機能する
 - [ ] Vercel の **Settings → Cron Jobs** に2件表示されている
 - [ ] `dryRun=1` で通知文が意図どおり組み立てられる

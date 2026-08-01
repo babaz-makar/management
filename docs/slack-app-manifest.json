@@ -27,7 +27,8 @@
         "commands",
         "users:read",
         "channels:read",
-        "groups:read"
+        "groups:read",
+        "im:write"
       ]
     }
   },

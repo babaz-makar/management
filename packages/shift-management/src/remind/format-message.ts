@@ -56,35 +56,62 @@ function sortByStart(shifts: ShiftEntry[]): ShiftEntry[] {
 }
 
 /**
- * Google Calendar 未連携のメンバーへ連携をお願いする文。
+ * Google Calendar 未連携の本人へ送るDMの本文。
+ *
+ * **チャンネルに公開投稿しない。** 連携URLは末尾の slack_user_id で
+ * 「誰のカレンダーとして保存するか」が決まるため、公開すると他人のリンクを
+ * 開いてしまい、Googleアカウントが別人のSlack IDに紐づく事故が起きる。
+ * その間違いはエラーにならず、シフトがずれて通知されるまで気づけない。
  *
  * 連携リンクは既存のシフト変更ツールの OAuth 開始URLをそのまま使う
  * （トークンの保存先が同じなので、どちらから連携しても両方の機能が動く）。
  */
-export function formatConnectRequest(
-  slackUserIds: string[],
-  appUrl: string,
-): string | null {
-  if (slackUserIds.length === 0) return null;
+export function formatConnectDm(slackUserId: string, appUrl: string): string {
   return [
-    ":link: *Googleカレンダーの連携がまだのメンバーがいます*",
-    "下のリンクから連携すると、シフトを読んでリマインドできるようになります。",
+    ":wave: シフトリマインドの対象に登録されています。",
+    "Googleカレンダーを連携すると、シフトの前日夜と当日朝にSlackで通知が届きます。",
     "",
-    ...slackUserIds.map((id) => `<@${id}> → ${connectUrl(appUrl, id)}`),
+    `:link: ${connectUrl(appUrl, slackUserId)}`,
+    "",
+    "_このリンクはあなた専用です。他の人には共有しないでください。_",
   ].join("\n");
 }
 
-/** 対象メンバーに追加したときの確認文。未連携なら連携リンクも添える */
+/**
+ * DM送信の結果をチャンネルに知らせる文（リンクは載せない）。
+ * 送る相手がいなければ null。
+ */
+export function formatConnectNotice(
+  dmSent: string[],
+  dmFailed: string[],
+): string | null {
+  if (dmSent.length === 0 && dmFailed.length === 0) return null;
+
+  const lines: string[] = [];
+  if (dmSent.length > 0) {
+    lines.push(
+      `:incoming_envelope: カレンダー未連携の ${dmSent.map((id) => `<@${id}>`).join(" ")} にDMで連携リンクを送りました。`,
+    );
+  }
+  if (dmFailed.length > 0) {
+    lines.push(
+      `:warning: ${dmFailed.map((id) => `<@${id}>`).join(" ")} へのDM送信に失敗しました（Botの \`im:write\` スコープを確認してください）。`,
+    );
+  }
+  return lines.join("\n");
+}
+
+/** 対象メンバーに追加したときの確認文。連携リンクはDMで別送するのでここには載せない */
 export function formatMemberAdded(
   slackUserIds: string[],
-  unconnected: string[],
-  appUrl: string,
+  dmSent: string[],
+  dmFailed: string[],
 ): string {
   const added = slackUserIds.map((id) => `<@${id}>`).join(" ");
   const lines = [`:white_check_mark: ${added} をシフトリマインドの対象に追加しました。`];
 
-  const request = formatConnectRequest(unconnected, appUrl);
-  if (request) lines.push("", request);
+  const notice = formatConnectNotice(dmSent, dmFailed);
+  if (notice) lines.push("", notice);
 
   return lines.join("\n");
 }
