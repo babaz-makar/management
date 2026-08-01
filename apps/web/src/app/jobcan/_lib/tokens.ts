@@ -4,7 +4,30 @@
  * 既存アプリの素朴なインライン style 基調を保つため、CSS ライブラリは入れず、
  * ここで 3 系統(危険=赤 / 警告=オレンジ / 成功・通常=黒)だけを一元管理する。
  * コンポーネントはこの定数を参照し、色をハードコードしない。
+ *
+ * iOS 風リスキンの拡張トークン(IOS / iosType 等)は packages の純粋ロジック
+ * (client 安全バレル)に置き、ここから再輸出する。値の回帰は packages 側の
+ * ios-tokens.test.ts で固定済み(apps/web にテストランナーが無いため)。
+ * 既存の COLORS / PAGE_STYLE は後方互換のため残す。
  */
+export {
+  IOS,
+  IOS_FONT_FAMILY,
+  iosType,
+  iosButtonColors,
+  iosCalloutColors,
+  iosRowBackground,
+} from "@management/shift-management/ui";
+export type {
+  IosTypeLevel,
+  IosTypeStyle,
+  IosButtonVariant,
+  IosButtonState,
+  IosButtonColors,
+  IosCalloutTone,
+  IosCalloutColors,
+} from "@management/shift-management/ui";
+
 export const COLORS = {
   /** 危険操作(削除・取り違え)。 */
   danger: "#c0392b",

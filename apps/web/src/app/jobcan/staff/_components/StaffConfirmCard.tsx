@@ -1,11 +1,30 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { findSimilarStaffNames } from "@management/shift-management/ui";
+import {
+  JOBCAN_UI_TERMS,
+  canSubmitStaffEntry,
+  consentAfterInputChange,
+  findSimilarStaffNames,
+} from "@management/shift-management/ui";
 import type { StaffDirectoryEntry } from "@management/shift-management";
 import { isValidStaffCode, type SlackCheckResult } from "../_lib/staff-client";
 import { SlackCheckButton } from "./SlackCheckButton";
-import { COLORS } from "../../_lib/tokens";
+import { IOS, iosType } from "../../_lib/tokens";
+import { IosButton, IosCallout, IosCard } from "../../_components/ios";
+
+/** iOS 風の入力欄 style(高さ 44・角丸 10・薄グレー地)。 */
+const inputStyle: React.CSSProperties = {
+  height: IOS.metrics.controlHeight,
+  padding: "0 12px",
+  borderRadius: IOS.metrics.radiusControl,
+  border: `0.5px solid ${IOS.color.separator}`,
+  background: IOS.color.cardBg,
+  color: IOS.color.label,
+  boxSizing: "border-box",
+  outline: "none",
+  ...iosType("body"),
+};
 
 interface StaffConfirmCardProps {
   entries: StaffDirectoryEntry[];
@@ -55,7 +74,12 @@ export function StaffConfirmCard({
     return findSimilarStaffNames(emailTrimmed, candidates);
   }, [entries, emailTrimmed, emailLooksValid]);
 
-  const canSubmit = codeValid && emailLooksValid && agreed && !busy;
+  const canSubmit = canSubmitStaffEntry({
+    codeValid,
+    emailLooksValid,
+    agreed,
+    busy,
+  });
 
   function handleSubmit() {
     if (!canSubmit) return;
@@ -63,50 +87,63 @@ export function StaffConfirmCard({
   }
 
   return (
-    <section
-      style={{
-        padding: "1.1rem 1.3rem",
-        border: `1px solid ${COLORS.border}`,
-        borderRadius: 6,
-        marginBottom: "1.5rem",
-        background: COLORS.surface,
-      }}
-    >
-      <h2 style={{ marginTop: 0 }}>新規登録 / 更新</h2>
+    <IosCard style={{ marginBottom: IOS.metrics.sectionGap }} padding={20}>
+      <h2 style={{ marginTop: 0, marginBottom: 12, ...iosType("title3") }}>
+        新規登録 / 更新
+      </h2>
 
-      <div style={{ marginBottom: ".75rem" }}>
-        <label>
-          staffCode(例 A0187)
-          <br />
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ display: "block" }}>
+          <span
+            style={{
+              display: "block",
+              color: IOS.color.secondaryLabel,
+              ...iosType("footnote"),
+            }}
+          >
+            {JOBCAN_UI_TERMS.staffCodeLabel}(例 A0187)
+          </span>
           <input
             type="text"
             value={staffCode}
-            onChange={(e) => setStaffCode(e.target.value)}
+            onChange={(e) => {
+              setStaffCode(e.target.value);
+              // O-1: 対応が変わったら同意を無効化(email 変更と対称)。
+              setAgreed(consentAfterInputChange());
+            }}
             placeholder="A0187"
-            style={{ padding: ".35rem .5rem", width: 160 }}
+            style={{ ...inputStyle, width: 180, marginTop: 4 }}
           />
         </label>
         {staffCode.length > 0 && !codeValid && (
-          <div style={{ color: COLORS.danger, marginTop: ".25rem" }}>
+          <div style={{ color: IOS.color.redText, marginTop: 4, ...iosType("footnote") }}>
             形式が不正です(大文字英字1文字 + 数字4桁)。
           </div>
         )}
       </div>
 
-      <div style={{ marginBottom: ".5rem" }}>
-        <label>
-          email
-          <br />
+      <div style={{ marginBottom: 8 }}>
+        <label style={{ display: "block" }}>
+          <span
+            style={{
+              display: "block",
+              color: IOS.color.secondaryLabel,
+              ...iosType("footnote"),
+            }}
+          >
+            {JOBCAN_UI_TERMS.emailLabel}
+          </span>
           <input
             type="email"
             value={email}
             onChange={(e) => {
               setEmail(e.target.value);
               setSlackResult(null);
-              setAgreed(false);
+              // O-1: 対応が変わったら同意を無効化(staffCode 変更と対称)。
+              setAgreed(consentAfterInputChange());
             }}
             placeholder="name@example.com"
-            style={{ padding: ".35rem .5rem", width: 280 }}
+            style={{ ...inputStyle, width: 300, maxWidth: "100%", marginTop: 4 }}
           />
         </label>
       </div>
@@ -119,28 +156,29 @@ export function StaffConfirmCard({
       />
 
       {similar.length > 0 && (
-        <div
-          style={{
-            padding: ".6rem .9rem",
-            background: COLORS.warningBg,
-            border: `1px solid ${COLORS.warningBorder}`,
-            borderRadius: 4,
-            color: COLORS.warning,
-            margin: ".5rem 0",
-          }}
+        <IosCallout
+          tone="warning"
+          title="紛らわしい既存登録があります(取り違えに注意):"
+          style={{ margin: "8px 0" }}
         >
-          <strong>紛らわしい既存登録があります(取り違えに注意):</strong>
-          <ul style={{ margin: ".25rem 0 0", paddingLeft: "1.2rem" }}>
+          <ul style={{ margin: 0, paddingLeft: "1.2rem" }}>
             {similar.map((match) => (
               <li key={match.staffCode}>
                 {match.staffCode} — {match.staffName}
               </li>
             ))}
           </ul>
-        </div>
+        </IosCallout>
       )}
 
-      <label style={{ display: "block", margin: ".5rem 0" }}>
+      <label
+        style={{
+          display: "block",
+          margin: "10px 0",
+          color: IOS.color.label,
+          ...iosType("callout"),
+        }}
+      >
         <input
           type="checkbox"
           checked={agreed}
@@ -148,24 +186,17 @@ export function StaffConfirmCard({
           disabled={!codeValid || !emailLooksValid}
           style={{ marginRight: ".5rem" }}
         />
-        この対応(staffCode ⇄ email)で間違いない
+        {JOBCAN_UI_TERMS.consentLabel}
       </label>
 
-      <button
-        type="button"
-        onClick={handleSubmit}
+      <IosButton
+        variant="filled"
+        size="primary"
         disabled={!canSubmit}
-        style={{
-          background: canSubmit ? COLORS.text : COLORS.border,
-          color: "#fff",
-          border: "none",
-          padding: ".5rem 1rem",
-          borderRadius: 4,
-          cursor: canSubmit ? "pointer" : "not-allowed",
-        }}
+        onClick={handleSubmit}
       >
         {busy ? "登録中…" : "この内容で登録する"}
-      </button>
-    </section>
+      </IosButton>
+    </IosCard>
   );
 }

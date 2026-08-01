@@ -56,6 +56,7 @@ export type {
 export {
   sanitizeFileName,
   resolveDryRun,
+  isJobcanApplyEnabled,
   coerceCellText,
   verifyImportAuth,
   validateUploadLimits,
@@ -99,6 +100,20 @@ export {
   neonDeleteEntry,
 } from "./staff-directory-neon-core";
 export type { SqlTag } from "./staff-directory-neon-core";
+
+export {
+  ensureImportHistoryTable,
+  neonInsertImportHistory,
+  neonListRecentImportHistory,
+  neonGetImportHistorySummary,
+  summarizeWarnings,
+  buildImportHistoryRecord,
+} from "./jobcan-import-history-neon-core";
+export type {
+  ImportHistoryRecord,
+  ImportHistoryRow,
+  ImportHistorySummary,
+} from "./jobcan-import-history-neon-core";
 
 export { describeImportReason } from "./import-reason-describe";
 

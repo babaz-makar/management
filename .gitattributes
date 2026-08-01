@@ -1,0 +1,8 @@
+# TypeScript/JavaScript ソースは常にテキストとして差分表示する。
+# テスト入力に制御バイト(NUL 等)が埋め込まれた場合でも git がファイル全体を
+# バイナリ扱いにせず、PR レビューで差分が読めるようにするため diff 属性を明示する。
+# (diff のみ。text 属性は付けない=既存ファイルの eol 再正規化を誘発しない)
+*.ts diff
+*.tsx diff
+*.js diff
+*.jsx diff

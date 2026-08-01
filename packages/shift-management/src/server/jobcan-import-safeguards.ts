@@ -41,10 +41,26 @@ export function sanitizeFileName(name: string): string {
 const APPLY_ENABLED_VALUES = new Set(["true", "1"]);
 
 /**
+ * 本反映スイッチ(env 第一ゲート)が有効かを判定する。
+ * JOBCAN_APPLY_ENABLED が明示的な有効値("true"/"1")のときだけ true。
+ * 未設定・空文字・未知値・大文字違いは false(既定オフ)。
+ * status API と resolveDryRun がこの判定を共有し、「env の見方」が二重定義でずれる事故を防ぐ。
+ * 秘密は扱わない(env の値そのものは戻り値に露出しない)。
+ */
+export function isJobcanApplyEnabled(env: {
+  JOBCAN_APPLY_ENABLED?: string;
+}): boolean {
+  return (
+    typeof env.JOBCAN_APPLY_ENABLED === "string" &&
+    APPLY_ENABLED_VALUES.has(env.JOBCAN_APPLY_ENABLED)
+  );
+}
+
+/**
  * dry-run にするかを決める(既定 dry-run 厳守・M-4 フェイルオープン封じ)。
  *
  * 本反映(false)になるのは **二重ゲートが両方成立** した時だけ:
- *   1. 環境変数 JOBCAN_APPLY_ENABLED が明示的な有効値("true"/"1")
+ *   1. 環境変数 JOBCAN_APPLY_ENABLED が明示的な有効値("true"/"1") = isJobcanApplyEnabled
  *   2. 呼び出しの apply が厳密に boolean の true
  * どちらか欠ける/未知値/型が違う場合は必ず dry-run(true)を返す。書込側へ倒れる経路を作らない。
  */
@@ -52,11 +68,8 @@ export function resolveDryRun(
   input: { apply?: boolean },
   env: { JOBCAN_APPLY_ENABLED?: string },
 ): boolean {
-  const envEnabled =
-    typeof env.JOBCAN_APPLY_ENABLED === "string" &&
-    APPLY_ENABLED_VALUES.has(env.JOBCAN_APPLY_ENABLED);
   const applyRequested = input.apply === true; // 厳密 true 以外は全て false 扱い
-  const shouldApply = envEnabled && applyRequested;
+  const shouldApply = isJobcanApplyEnabled(env) && applyRequested;
   return !shouldApply;
 }
 

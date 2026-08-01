@@ -1,7 +1,9 @@
 "use client";
 
 import type { StaffDirectoryEntry } from "@management/shift-management";
-import { COLORS } from "../../_lib/tokens";
+import { JOBCAN_UI_TERMS } from "@management/shift-management/ui";
+import { IOS, iosType } from "../../_lib/tokens";
+import { IosCard } from "../../_components/ios";
 
 interface StaffTableProps {
   entries: StaffDirectoryEntry[];
@@ -10,7 +12,7 @@ interface StaffTableProps {
   onDelete: (staffCode: string) => void;
 }
 
-/** 名簿一覧(検索 + 削除操作)。 */
+/** 名簿一覧(検索 + 削除操作)。テーブルの見た目のみ iOS 化(列は維持)。 */
 export function StaffTable({ entries, query, onQueryChange, onDelete }: StaffTableProps) {
   const normalized = query.trim().toLowerCase();
   const filtered =
@@ -23,61 +25,114 @@ export function StaffTable({ entries, query, onQueryChange, onDelete }: StaffTab
         );
 
   return (
-    <section style={{ marginBottom: "1.5rem" }}>
-      <div style={{ marginBottom: ".6rem" }}>
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          placeholder="staffCode / email で検索"
-          style={{ padding: ".35rem .5rem", width: 280 }}
-        />
-        <span style={{ color: COLORS.muted, marginLeft: ".75rem" }}>
+    <section style={{ marginBottom: IOS.metrics.sectionGap }}>
+      {/* iOS search: 角丸 10・虫眼鏡自前 */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 12,
+          gap: 12,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            flex: 1,
+            height: IOS.metrics.controlHeight,
+            padding: "0 12px",
+            background: IOS.gray.g6,
+            borderRadius: IOS.metrics.radiusControl,
+          }}
+        >
+          <span aria-hidden="true" style={{ color: IOS.color.secondaryLabel }}>
+            &#9906;
+          </span>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+            placeholder={JOBCAN_UI_TERMS.searchPlaceholder}
+            aria-label={JOBCAN_UI_TERMS.searchPlaceholder}
+            style={{
+              flex: 1,
+              border: "none",
+              outline: "none",
+              background: "transparent",
+              color: IOS.color.label,
+              ...iosType("body"),
+            }}
+          />
+        </div>
+        <span style={{ color: IOS.color.secondaryLabel, ...iosType("subhead") }}>
           {filtered.length} / {entries.length} 件
         </span>
       </div>
 
       {filtered.length === 0 ? (
-        <p style={{ color: COLORS.muted }}>該当する登録がありません。</p>
+        <p style={{ color: IOS.color.secondaryLabel, ...iosType("subhead") }}>
+          該当する登録がありません。
+        </p>
       ) : (
-        <table style={{ borderCollapse: "collapse", width: "100%" }}>
-          <thead>
-            <tr>
-              <th style={cellHead}>staffCode</th>
-              <th style={cellHead}>email</th>
-              <th style={cellHead}>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((entry) => (
-              <tr key={entry.staffCode}>
-                <td style={cell}>{entry.staffCode}</td>
-                <td style={cell}>{entry.email}</td>
-                <td style={cell}>
-                  <button
-                    type="button"
-                    onClick={() => onDelete(entry.staffCode)}
-                    style={{ color: COLORS.danger }}
-                  >
-                    削除
-                  </button>
-                </td>
+        <IosCard padding={0} radius={IOS.metrics.radiusList}>
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <thead>
+              <tr>
+                <th style={cellHead}>{JOBCAN_UI_TERMS.staffCodeLabel}</th>
+                <th style={cellHead}>{JOBCAN_UI_TERMS.emailLabel}</th>
+                <th style={cellHead}>操作</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {filtered.map((entry) => (
+                <tr key={entry.staffCode}>
+                  <td style={cell}>{entry.staffCode}</td>
+                  <td style={cell}>{entry.email}</td>
+                  <td style={cell}>
+                    <button
+                      type="button"
+                      onClick={() => onDelete(entry.staffCode)}
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        color: IOS.color.redText,
+                        cursor: "pointer",
+                        padding: "4px 2px",
+                        ...iosType("body"),
+                      }}
+                    >
+                      削除
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </IosCard>
       )}
     </section>
   );
 }
 
+// ヘッダ = gray footnote、左揃え、hairline 下線。
 const cellHead: React.CSSProperties = {
   textAlign: "left",
-  borderBottom: `2px solid ${COLORS.border}`,
-  padding: ".4rem .6rem",
+  color: IOS.color.secondaryLabel,
+  borderBottom: `0.5px solid ${IOS.color.separator}`,
+  padding: "8px 16px",
+  fontSize: 13,
+  fontWeight: 400,
+  letterSpacing: "0px",
 };
 
+// 行 = hairline 区切り、行高 44pt、ゼブラなし。
 const cell: React.CSSProperties = {
-  borderBottom: `1px solid ${COLORS.border}`,
-  padding: ".4rem .6rem",
+  borderBottom: `0.5px solid ${IOS.color.separator}`,
+  padding: "0 16px",
+  height: IOS.metrics.rowMinHeight,
+  color: IOS.color.label,
+  fontSize: 17,
 };

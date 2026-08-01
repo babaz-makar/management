@@ -22,3 +22,74 @@ export type {
 } from "./server/staff-name-similarity";
 export { describeHttpError } from "./server/http-error-describe";
 export { isValidStaffCode, STAFF_CODE_PATTERN } from "./server/staff-code";
+
+// ホーム画面の状態判定(純関数・依存ゼロ。型のみ server を参照=実行時グラフを辿らない)。
+export {
+  resolveHomeState,
+  formatImportDate,
+  monthRangeIso,
+  APPLY_OFF_BANNER_MESSAGE,
+} from "./logic/jobcan-home-state";
+export type {
+  HomeState,
+  HomePrimary,
+  HomePrimaryKind,
+  HomeSnapshot,
+} from "./logic/jobcan-home-state";
+export type {
+  ImportHistoryRecord,
+  ImportHistoryRow,
+  ImportHistorySummary,
+} from "./logic/jobcan-import-history-types";
+
+// ホーム取得結果の正規化(純関数・依存ゼロ)。home-client が委譲する。
+export {
+  resolveHistoryLimit,
+  normalizeStatusResponse,
+  normalizeHistoryResponse,
+  normalizeStaffCountResponse,
+  buildHomeSnapshot,
+} from "./logic/jobcan-home-fetch";
+export type {
+  StatusFetch,
+  HistoryFetch,
+  StaffCountFetch,
+} from "./logic/jobcan-home-fetch";
+
+// jobcan API の英語エラーコード→利用者向け日本語の翻訳(純関数・依存ゼロ)。
+export { translateJobcanServerError } from "./logic/jobcan-error-messages";
+
+// jobcan 3 画面の表示用語・タブ定義・ステッパー写像(純データ/純関数・依存ゼロ)。
+export {
+  JOBCAN_TABS,
+  JOBCAN_UI_TERMS,
+  importStepLabel,
+  importPhaseToStep,
+} from "./logic/jobcan-ui-terms";
+export type { JobcanTab } from "./logic/jobcan-ui-terms";
+
+// スタッフ名簿 登録フォームの同意ゲート判定(純関数・依存ゼロ)。
+export {
+  consentAfterInputChange,
+  canSubmitStaffEntry,
+} from "./logic/staff-consent";
+export type { StaffEntryGate } from "./logic/staff-consent";
+
+// iOS 風リスキンのデザイントークン + style 生成ヘルパ(純関数・依存ゼロ)。
+export {
+  IOS,
+  IOS_FONT_FAMILY,
+  iosType,
+  iosButtonColors,
+  iosCalloutColors,
+  iosRowBackground,
+} from "./logic/ios-tokens";
+export type {
+  IosTypeLevel,
+  IosTypeStyle,
+  IosButtonVariant,
+  IosButtonState,
+  IosButtonColors,
+  IosCalloutTone,
+  IosCalloutColors,
+} from "./logic/ios-tokens";

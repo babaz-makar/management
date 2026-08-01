@@ -1,6 +1,6 @@
 "use client";
 
-import { COLORS } from "../../_lib/tokens";
+import { IosCallout } from "../../_components/ios";
 
 interface UnregisteredListProps {
   /** 取込画面の warning から遷移してきた未登録 staffCode。 */
@@ -14,15 +14,9 @@ export function UnregisteredList({ staffCode, alreadyRegistered }: UnregisteredL
   if (staffCode.length === 0) return null;
 
   return (
-    <section
-      style={{
-        padding: ".8rem 1rem",
-        background: alreadyRegistered ? COLORS.successBg : COLORS.warningBg,
-        border: `1px solid ${alreadyRegistered ? COLORS.successBorder : COLORS.warningBorder}`,
-        borderRadius: 6,
-        marginBottom: "1.25rem",
-        color: alreadyRegistered ? COLORS.success : COLORS.warning,
-      }}
+    <IosCallout
+      tone={alreadyRegistered ? "success" : "warning"}
+      style={{ marginBottom: 20 }}
     >
       {alreadyRegistered ? (
         <span>
@@ -34,6 +28,6 @@ export function UnregisteredList({ staffCode, alreadyRegistered }: UnregisteredL
           の登録依頼が来ています。下のカードで email を対応づけてください。
         </span>
       )}
-    </section>
+    </IosCallout>
   );
 }

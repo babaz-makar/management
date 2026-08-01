@@ -1,6 +1,6 @@
 "use client";
 
-import { COLORS } from "../_lib/tokens";
+import { IosCallout } from "./ios";
 
 /**
  * 本反映が無効(サーバー env JOBCAN_APPLY_ENABLED 未設定)の告知。
@@ -8,21 +8,13 @@ import { COLORS } from "../_lib/tokens";
  */
 export function ApplyDisabledBanner() {
   return (
-    <section
-      style={{
-        padding: "0.9rem 1.1rem",
-        background: COLORS.warningBg,
-        border: `1px solid ${COLORS.warningBorder}`,
-        borderRadius: 6,
-        marginBottom: "1.25rem",
-        color: COLORS.warning,
-      }}
+    <IosCallout
+      tone="warning"
+      title="本反映は有効化されていません。"
+      style={{ marginBottom: 20 }}
     >
-      <strong>本反映は有効化されていません。</strong>
-      <p style={{ margin: ".4rem 0 0" }}>
-        サーバー側の本反映スイッチが無効のため、カレンダーは変更されていません(dry-run
-        のまま)。反映を行うには管理者に有効化を依頼してください。
-      </p>
-    </section>
+      サーバー側の反映スイッチが無効のため、カレンダーは変更されていません(確認のみ
+      実行された状態)。反映を行うには管理者に有効化を依頼してください。
+    </IosCallout>
   );
 }

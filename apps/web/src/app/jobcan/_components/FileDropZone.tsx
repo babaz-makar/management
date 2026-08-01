@@ -1,6 +1,7 @@
 "use client";
 
-import { COLORS } from "../_lib/tokens";
+import { IOS, iosButtonColors, iosType } from "../_lib/tokens";
+import { GroupedList, IosCallout, IosCard, IosEmpty, IosIcon, ListRow } from "./ios";
 import { formatBytes, totalSize, type ClientLimitWarning } from "../_lib/import-client";
 
 interface FileDropZoneProps {
@@ -21,10 +22,29 @@ export function FileDropZone({
   onRemove,
   onClear,
 }: FileDropZoneProps) {
+  // filled 濃青の主ボタンに格上げ(素の file input はラベルで隠し、複数選択・再選択は据え置き)。
+  const filled = iosButtonColors("filled", disabled ? "disabled" : "default");
+
   return (
-    <section style={{ marginBottom: "1.5rem" }}>
-      <label style={{ display: "inline-block", marginBottom: ".5rem" }}>
-        <span style={{ marginRight: ".75rem" }}>ジョブカンの xlsx を選択(複数可)</span>
+    <IosCard style={{ marginBottom: 24 }} padding={16}>
+      <label
+        style={{
+          ...iosType("headline"),
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          height: IOS.metrics.buttonPrimaryHeight,
+          width: "100%",
+          padding: "0 18px",
+          borderRadius: IOS.metrics.radiusCard,
+          background: filled.background,
+          color: filled.color,
+          cursor: disabled ? "not-allowed" : "pointer",
+        }}
+      >
+        <IosIcon name="file" size={18} />
+        ジョブカンのファイルを選ぶ(複数OK)
         <input
           type="file"
           multiple
@@ -36,77 +56,99 @@ export function FileDropZone({
             // 同じファイルを再選択できるよう value をリセット。
             e.target.value = "";
           }}
+          style={{
+            position: "absolute",
+            width: 1,
+            height: 1,
+            padding: 0,
+            margin: -1,
+            overflow: "hidden",
+            clip: "rect(0 0 0 0)",
+            whiteSpace: "nowrap",
+            border: 0,
+          }}
         />
       </label>
 
       {files.length === 0 ? (
-        <p style={{ color: COLORS.muted, marginTop: ".25rem" }}>
-          まだファイルが選択されていません。
-        </p>
+        <div style={{ marginTop: 8 }}>
+          <IosEmpty
+            icon={<IosIcon name="tray" size={38} />}
+            title="まだファイルを選んでいません"
+            description="ジョブカンからダウンロードした xlsx を選んでください。"
+          />
+        </div>
       ) : (
-        <div>
-          <p style={{ margin: ".25rem 0", color: COLORS.muted }}>
-            {files.length}件 / 合計 {formatBytes(totalSize(files))}
+        <div style={{ marginTop: 12 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 8,
+              color: IOS.color.secondaryLabel,
+              ...iosType("subhead"),
+            }}
+          >
+            <span>
+              {files.length}件 / 合計 {formatBytes(totalSize(files))}
+            </span>
             <button
               type="button"
               onClick={onClear}
               disabled={disabled}
-              style={{ marginLeft: "1rem" }}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: disabled ? IOS.gray.g1 : IOS.color.blue,
+                cursor: disabled ? "not-allowed" : "pointer",
+                padding: "4px 2px",
+                ...iosType("subhead"),
+              }}
             >
               すべて外す
             </button>
-          </p>
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          </div>
+          <GroupedList>
             {files.map((file, index) => (
-              <li
+              <ListRow
                 key={`${file.name}-${index}`}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  padding: ".4rem .6rem",
-                  border: `1px solid ${COLORS.border}`,
-                  borderRadius: 4,
-                  marginBottom: ".3rem",
-                  background: COLORS.surface,
-                }}
-              >
-                <span>
-                  {file.name}
-                  <span style={{ color: COLORS.muted, marginLeft: ".5rem" }}>
-                    {formatBytes(file.size)}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onRemove(index)}
-                  disabled={disabled}
-                  aria-label={`${file.name} を外す`}
-                >
-                  外す
-                </button>
-              </li>
+                title={file.name}
+                subtitle={formatBytes(file.size)}
+                last={index === files.length - 1}
+                detail={
+                  <button
+                    type="button"
+                    onClick={() => onRemove(index)}
+                    disabled={disabled}
+                    aria-label={`${file.name} を外す`}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: disabled ? IOS.gray.g1 : IOS.color.redText,
+                      cursor: disabled ? "not-allowed" : "pointer",
+                      padding: "4px 2px",
+                      ...iosType("subhead"),
+                    }}
+                  >
+                    外す
+                  </button>
+                }
+              />
             ))}
-          </ul>
+          </GroupedList>
         </div>
       )}
 
       {limitWarnings.length > 0 && (
-        <ul
-          style={{
-            marginTop: ".75rem",
-            padding: ".6rem .9rem",
-            color: COLORS.warning,
-            background: COLORS.warningBg,
-            border: `1px solid ${COLORS.warningBorder}`,
-            borderRadius: 4,
-          }}
-        >
-          {limitWarnings.map((warning) => (
-            <li key={warning.kind}>{warning.message}</li>
-          ))}
-        </ul>
+        <IosCallout tone="warning" style={{ marginTop: 12 }}>
+          <ul style={{ margin: 0, paddingLeft: "1.2rem" }}>
+            {limitWarnings.map((warning) => (
+              <li key={warning.kind}>{warning.message}</li>
+            ))}
+          </ul>
+        </IosCallout>
       )}
-    </section>
+    </IosCard>
   );
 }

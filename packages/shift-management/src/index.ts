@@ -31,6 +31,37 @@ export { parseJobcanFileName } from "./logic/jobcan-filename";
 export { planJobcanDayUpsert, groupEntriesByDate } from "./logic/jobcan-plan";
 export type { JobcanDayPlan, JobcanDayContext } from "./logic/jobcan-plan";
 
+// ジョブカン ホーム画面の状態判定(純関数・Neon非依存)
+export {
+  resolveHomeState,
+  formatImportDate,
+  monthRangeIso,
+  currentJstYearMonth,
+  APPLY_OFF_BANNER_MESSAGE,
+} from "./logic/jobcan-home-state";
+export type {
+  HomeState,
+  HomePrimary,
+  HomePrimaryKind,
+  HomeSnapshot,
+} from "./logic/jobcan-home-state";
+
+// ホーム取得結果の正規化(純関数)＋ best-effort 書込の timeout ユーティリティ
+export {
+  resolveHistoryLimit,
+  normalizeStatusResponse,
+  normalizeHistoryResponse,
+  normalizeStaffCountResponse,
+  buildHomeSnapshot,
+} from "./logic/jobcan-home-fetch";
+export type {
+  StatusFetch,
+  HistoryFetch,
+  StaffCountFetch,
+} from "./logic/jobcan-home-fetch";
+export { runWithTimeout } from "./logic/run-with-timeout";
+export type { TimeoutOutcome } from "./logic/run-with-timeout";
+
 // カレンダーupsert計画（DESIGN.md フェーズ2の純関数部分）
 export { planCalendarUpsert } from "./logic/calendar-plan";
 export type {
@@ -70,6 +101,7 @@ export {
   formatJobcanImportSummary,
   sanitizeFileName,
   resolveDryRun,
+  isJobcanApplyEnabled,
   coerceCellText,
   verifyImportAuth,
   validateUploadLimits,
@@ -80,6 +112,12 @@ export {
   DEFAULT_UPLOAD_LIMITS,
   MAX_RELAY_BODY_BYTES,
   REQUIRED_IMPORT_ENV_VARS,
+  ensureImportHistoryTable,
+  neonInsertImportHistory,
+  neonListRecentImportHistory,
+  neonGetImportHistorySummary,
+  summarizeWarnings,
+  buildImportHistoryRecord,
   describeImportReason,
   findSimilarStaffNames,
 } from "./server";
@@ -117,4 +155,7 @@ export type {
   StaffNameCandidate,
   StaffNameMatchType,
   SimilarStaffMatch,
+  ImportHistoryRecord,
+  ImportHistoryRow,
+  ImportHistorySummary,
 } from "./server";
