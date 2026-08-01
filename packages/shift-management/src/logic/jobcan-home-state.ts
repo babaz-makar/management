@@ -139,15 +139,33 @@ export function formatImportDate(iso: string): string {
   return `${month}月${day}日`;
 }
 
+/** JST は UTC+9。暦月境界を JST 基準で扱うためのオフセット(ミリ秒)。 */
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
 /**
- * 指定年月の半開区間 [当月1日, 翌月1日) を UTC 基準の ISO で返す。
- * 「当月の本反映件数」集計クエリの月境界に使う。
+ * 指定 JST 暦月の半開区間 [当月1日 00:00 JST, 翌月1日 00:00 JST) を **UTC の ISO** で返す。
+ * executed_at は timestamptz(UTC 実時刻)なので、JST 月初の瞬間を UTC へ変換した境界を渡す。
+ * 例: JST 8月 → [2026-07-31T15:00:00Z, 2026-08-31T15:00:00Z)。
+ * M-2: UTC 暦月ではなく JST 暦月に統一し、月初深夜帯(JST 0〜9時)の取りこぼしを無くす。
  */
 export function monthRangeIso(
   year: number,
   month: number,
 ): { startIso: string; endIso: string } {
-  const start = new Date(Date.UTC(year, month - 1, 1));
-  const end = new Date(Date.UTC(year, month, 1));
+  const start = new Date(Date.UTC(year, month - 1, 1) - JST_OFFSET_MS);
+  const end = new Date(Date.UTC(year, month, 1) - JST_OFFSET_MS);
   return { startIso: start.toISOString(), endIso: end.toISOString() };
+}
+
+/**
+ * 現在時刻(ms)を JST 暦の年・月(1-12)に変換する。
+ * UTC+9 したうえで UTC フィールドを読むことで、JST の「今何月か」を得る
+ * (月初深夜帯に UTC 基準だと前月扱いになる取りこぼしを防ぐ)。
+ */
+export function currentJstYearMonth(nowMs: number): {
+  year: number;
+  month: number;
+} {
+  const jst = new Date(nowMs + JST_OFFSET_MS);
+  return { year: jst.getUTCFullYear(), month: jst.getUTCMonth() + 1 };
 }

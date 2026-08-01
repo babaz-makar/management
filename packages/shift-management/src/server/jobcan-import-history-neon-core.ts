@@ -31,19 +31,24 @@ export type {
 
 /**
  * warningBreakdown のキーに許す既知 reason の allowlist。
- * JobcanStaffSkipReason と一致させ、未知の文字列を DB へ書かせない
- * (型が破れた場合の防御。email 等の自由文字列混入を構造的に封じる)。
+ * 未知の文字列を DB へ書かせない(型が破れた場合の防御。email 等の自由文字列混入を構造的に封じる)。
+ *
+ * M-4: Record<JobcanStaffSkipReason, true> で網羅性を型に強制する。JobcanStaffSkipReason に
+ * 新 reason が増えたら、このオブジェクトリテラルにキーが足りずコンパイルエラーになるため、
+ * allowlist の更新漏れ(新 reason が黙って捨てられる)を型検査で検知できる。
  */
-const KNOWN_SKIP_REASONS: readonly JobcanStaffSkipReason[] = [
-  "not_allowlisted",
-  "email_not_registered",
-  "directory_error",
-  "slack_not_found",
-  "google_not_linked",
-  "resolve_error",
-  "reconcile_error",
-];
-const KNOWN_SKIP_REASON_SET = new Set<string>(KNOWN_SKIP_REASONS);
+const KNOWN_SKIP_REASON_FLAGS: Record<JobcanStaffSkipReason, true> = {
+  not_allowlisted: true,
+  email_not_registered: true,
+  directory_error: true,
+  slack_not_found: true,
+  google_not_linked: true,
+  resolve_error: true,
+  reconcile_error: true,
+};
+const KNOWN_SKIP_REASON_SET = new Set<string>(
+  Object.keys(KNOWN_SKIP_REASON_FLAGS),
+);
 
 /** 取得履歴の上限(無制限クエリを作らないための天井)。 */
 const MAX_HISTORY_LIMIT = 100;
@@ -130,7 +135,9 @@ export async function neonInsertImportHistory(
   record: ImportHistoryRecord,
 ): Promise<void> {
   // warning_breakdown は JSON 文字列で渡し ::jsonb でキャストする(値はカウントのみ)。
-  const breakdownJson = JSON.stringify(record.warningBreakdown ?? {});
+  // L-1: caller を信頼せず書込側でも allowlist 濾過する(将来別 caller が PII キーを
+  // 渡しても、既知 reason・非負int 以外は JSONB に載らない=多層防御)。
+  const breakdownJson = JSON.stringify(sanitizeBreakdown(record.warningBreakdown));
   await sql`
     INSERT INTO jobcan_import_history (
       dry_run, total_files, imported_files, errored_files, total_entries,
@@ -218,15 +225,21 @@ export async function neonListRecentImportHistory(
 }
 
 /**
- * ホーム集計を返す。
- * 1) 最新取込1件(overall・LIMIT 1) 2) 当月の本反映件数(dry_run=false・月境界) を発行し、
- * 未登録数は最新取込の warningBreakdown.email_not_registered から導く(追加クエリ不要)。
+ * ホーム集計を返す。3クエリを発行する:
+ * 1) latestImport: **overall 最新**1件(dry-run 含む)。「直近に何をしたか」の表示用。
+ * 2) monthlyRealCount: 当月の**本反映**(dry_run=false)件数。
+ * 3) unregisteredCount: **最新の本反映**(dry_run=false)1件の email_not_registered 数。
+ *
+ * M-1: latestImport(overall) と unregisteredCount(本反映) は**意図的にソースを分ける**。
+ * 未登録者が残っているのに、部分ファイルを dry-run しただけで overall 最新が dry-run 行に
+ * なり、未登録バナーが誤って消える/湧く事故を避けるため、未登録数は本反映の実績から出す。
  */
 export async function neonGetImportHistorySummary(
   sql: SqlTag,
   monthStartIso: string,
   monthEndIso: string,
 ): Promise<ImportHistorySummary> {
+  // 1) 表示用: overall 最新(dry-run/本反映いずれも)。
   const latestRows = (await sql`
     SELECT
       id, executed_at, dry_run, total_files, imported_files, errored_files,
@@ -238,6 +251,7 @@ export async function neonGetImportHistorySummary(
   `) as Record<string, unknown>[];
   const latestImport = latestRows.length > 0 ? mapRow(latestRows[0]) : null;
 
+  // 2) 当月の本反映件数。
   const countRows = (await sql`
     SELECT COUNT(*) AS count
     FROM jobcan_import_history
@@ -248,8 +262,21 @@ export async function neonGetImportHistorySummary(
   const monthlyRealCount =
     countRows.length > 0 ? nonNegInt(Number(countRows[0].count)) : 0;
 
-  const unregisteredCount = latestImport
-    ? nonNegInt(latestImport.warningBreakdown.email_not_registered ?? 0)
+  // 3) 未登録バナーの元データ: 最新の本反映(dry_run=false)1件から。dry-run には左右されない。
+  const latestRealRows = (await sql`
+    SELECT
+      id, executed_at, dry_run, total_files, imported_files, errored_files,
+      total_entries, staff_month_count, total_creates, total_deletes,
+      warning_count, conversion_error_count, reconcile_error, warning_breakdown
+    FROM jobcan_import_history
+    WHERE dry_run = false
+    ORDER BY executed_at DESC
+    LIMIT 1
+  `) as Record<string, unknown>[];
+  const latestReal =
+    latestRealRows.length > 0 ? mapRow(latestRealRows[0]) : null;
+  const unregisteredCount = latestReal
+    ? nonNegInt(latestReal.warningBreakdown.email_not_registered ?? 0)
     : 0;
 
   return { latestImport, monthlyRealCount, unregisteredCount };

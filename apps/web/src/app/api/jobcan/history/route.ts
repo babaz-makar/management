@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { monthRangeIso } from "@management/shift-management";
+import {
+  currentJstYearMonth,
+  monthRangeIso,
+  resolveHistoryLimit,
+} from "@management/shift-management";
 import { NeonImportHistoryStore } from "@/lib/import-history-neon";
 
 /**
@@ -15,9 +19,6 @@ import { NeonImportHistoryStore } from "@/lib/import-history-neon";
  * neon は Node ランタイム依存。
  */
 export const runtime = "nodejs";
-
-/** ?limit= の既定値(未指定・不正時)。上限クランプは core 側が行う。 */
-const DEFAULT_LIMIT = 20;
 
 /** DB 履歴ストアを得る。DATABASE_URL 未設定なら null(呼び出し側で 500)。 */
 function getStore(): NeonImportHistoryStore | null {
@@ -36,29 +37,19 @@ function dbFailed(): NextResponse {
   return NextResponse.json({ error: "operation failed" }, { status: 500 });
 }
 
-/** ?limit= を非負整数へ(不正は既定値)。最終的な上限は core が clamp する。 */
-function readLimit(req: NextRequest): number {
-  const raw = req.nextUrl.searchParams.get("limit");
-  if (raw === null) return DEFAULT_LIMIT;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_LIMIT;
-}
-
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const store = getStore();
   if (!store) return misconfigured();
 
-  // 「当月」は UTC 基準の月境界で集計する(ホームの補助統計。厳密な JST 境界ではない)。
-  const now = new Date();
-  const { startIso, endIso } = monthRangeIso(
-    now.getUTCFullYear(),
-    now.getUTCMonth() + 1,
-  );
+  // 「当月」は JST 暦月で集計する(月初深夜帯の取りこぼし防止)。境界計算は純関数へ委譲。
+  const { year, month } = currentJstYearMonth(Date.now());
+  const { startIso, endIso } = monthRangeIso(year, month);
+  const limit = resolveHistoryLimit(req.nextUrl.searchParams.get("limit"));
 
   try {
     const [summary, recent] = await Promise.all([
       store.getSummary(startIso, endIso),
-      store.listRecent(readLimit(req)),
+      store.listRecent(limit),
     ]);
     return NextResponse.json({ summary, recent });
   } catch {

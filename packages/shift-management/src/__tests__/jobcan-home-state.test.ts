@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   APPLY_OFF_BANNER_MESSAGE,
+  currentJstYearMonth,
   formatImportDate,
   monthRangeIso,
   resolveHomeState,
@@ -133,16 +134,33 @@ describe("formatImportDate: JST で M月D日 に整形", () => {
   });
 });
 
-describe("monthRangeIso: 当月境界の ISO", () => {
-  it("開始は当月1日、終了は翌月1日(半開区間)", () => {
+describe("monthRangeIso: JST 暦月の境界を UTC ISO で返す(M-2)", () => {
+  it("JST 8月 = [7/31 15:00Z, 8/31 15:00Z)(=JST 8/1 00:00 〜 9/1 00:00)", () => {
     const { startIso, endIso } = monthRangeIso(2026, 8);
-    expect(startIso).toBe("2026-08-01T00:00:00.000Z");
-    expect(endIso).toBe("2026-09-01T00:00:00.000Z");
+    expect(startIso).toBe("2026-07-31T15:00:00.000Z");
+    expect(endIso).toBe("2026-08-31T15:00:00.000Z");
   });
 
-  it("12月は翌年1月へ繰り上がる", () => {
+  it("12月は翌年1月へ繰り上がる(JST 境界)", () => {
     const { startIso, endIso } = monthRangeIso(2026, 12);
-    expect(startIso).toBe("2026-12-01T00:00:00.000Z");
-    expect(endIso).toBe("2027-01-01T00:00:00.000Z");
+    expect(startIso).toBe("2026-11-30T15:00:00.000Z");
+    expect(endIso).toBe("2026-12-31T15:00:00.000Z");
+  });
+});
+
+describe("currentJstYearMonth: 現在時刻を JST 暦月へ(月初深夜帯の取りこぼし防止)", () => {
+  it("JST 8/1 00:30(=7/31 15:30Z)は 2026年8月", () => {
+    const nowMs = Date.parse("2026-07-31T15:30:00.000Z");
+    expect(currentJstYearMonth(nowMs)).toEqual({ year: 2026, month: 8 });
+  });
+
+  it("JST 7/31 23:30(=7/31 14:30Z)はまだ 2026年7月", () => {
+    const nowMs = Date.parse("2026-07-31T14:30:00.000Z");
+    expect(currentJstYearMonth(nowMs)).toEqual({ year: 2026, month: 7 });
+  });
+
+  it("JST 1/1 00:10(=前年 12/31 15:10Z)は年跨ぎで翌年1月", () => {
+    const nowMs = Date.parse("2026-12-31T15:10:00.000Z");
+    expect(currentJstYearMonth(nowMs)).toEqual({ year: 2027, month: 1 });
   });
 });

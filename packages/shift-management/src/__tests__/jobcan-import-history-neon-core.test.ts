@@ -224,6 +224,29 @@ describe("neonInsertImportHistory: 1行INSERT(パラメータ化)", () => {
     expect(calls[0].values).toContain(false);
     expect(calls[0].values).toContain(JSON.stringify({ email_not_registered: 1 }));
   });
+
+  it("L-1: 書込側でも warningBreakdown を allowlist 濾過する(将来callerのPIIキーをJSONBに載せない)", async () => {
+    const { sql, calls } = createFakeSql();
+    // 別 caller が PII キー(email)や未知キー・不正値を混ぜてきた最悪ケース。
+    const dirty: ImportHistoryRecord = {
+      ...record,
+      warningBreakdown: {
+        email_not_registered: 2,
+        "leaked@example.com": 1,
+        totally_unknown: 9,
+        directory_error: -5,
+      } as Record<string, number>,
+    };
+    await neonInsertImportHistory(sql, dirty);
+    const jsonParam = calls[0].values.find(
+      (v) => typeof v === "string" && v.startsWith("{"),
+    ) as string;
+    const parsed = JSON.parse(jsonParam);
+    // 既知 reason だけ残り、値は非負int。PIIキー・未知キーは載らない。
+    expect(parsed).toEqual({ email_not_registered: 2, directory_error: 0 });
+    expect(jsonParam).not.toContain("leaked@example.com");
+    expect(jsonParam).not.toContain("totally_unknown");
+  });
 });
 
 describe("neonListRecentImportHistory: 上限必須の履歴取得", () => {
@@ -304,8 +327,25 @@ describe("neonListRecentImportHistory: 上限必須の履歴取得", () => {
   });
 });
 
-describe("neonGetImportHistorySummary: 直近取込+当月本反映件数+未登録数", () => {
-  const latest = {
+describe("neonGetImportHistorySummary: latestImport(overall) と unregistered(本反映) のソース分離(M-1)", () => {
+  // 直近の取込は「dry-run(部分ファイル)」で未登録0、直近の本反映は別で未登録3。
+  const latestOverallDryRun = {
+    id: 20,
+    executed_at: new Date("2026-08-10T02:00:00.000Z"),
+    dry_run: true,
+    total_files: 1,
+    imported_files: 1,
+    errored_files: 0,
+    total_entries: 5,
+    staff_month_count: 1,
+    total_creates: 3,
+    total_deletes: 0,
+    warning_count: 0,
+    conversion_error_count: 0,
+    reconcile_error: false,
+    warning_breakdown: {},
+  };
+  const latestRealWithUnregistered = {
     id: 9,
     executed_at: new Date("2026-08-01T09:30:00.000Z"),
     dry_run: false,
@@ -322,28 +362,54 @@ describe("neonGetImportHistorySummary: 直近取込+当月本反映件数+未登
     warning_breakdown: { email_not_registered: 3 },
   };
 
+  /** COUNT→件数 / dry_run=false かつ非COUNT→本反映最新 / それ以外→overall最新。 */
   function resolver(text: string): SqlRows {
     if (text.includes("COUNT(")) return [{ count: 5 }];
-    return [latest];
+    if (text.includes("dry_run = false")) return [latestRealWithUnregistered];
+    return [latestOverallDryRun];
   }
 
-  it("最新取込1件・当月本反映件数・最新取込の未登録数を返す", async () => {
+  it("latestImport は overall 最新(dry-run 含む)、unregisteredCount は最新の本反映から出す", async () => {
     const { sql, calls } = createFakeSql(resolver);
     const summary = await neonGetImportHistorySummary(
       sql,
       "2026-08-01T00:00:00.000Z",
       "2026-09-01T00:00:00.000Z",
     );
-    expect(summary.latestImport?.id).toBe(9);
-    expect(summary.monthlyRealCount).toBe(5);
+    // 直近に何をしたか(表示用)は dry-run の取込
+    expect(summary.latestImport?.id).toBe(20);
+    expect(summary.latestImport?.dryRun).toBe(true);
+    // 未登録バナーの元データは「最新の本反映」由来なので、dry-run に消されない
     expect(summary.unregisteredCount).toBe(3);
+    expect(summary.monthlyRealCount).toBe(5);
+    // 本反映最新クエリは dry_run = false かつ LIMIT 1(非COUNT)
+    const realCall = calls.find(
+      (c) => c.text.includes("dry_run = false") && !c.text.includes("COUNT("),
+    );
+    expect(realCall?.text).toContain("LIMIT");
     // 当月件数クエリは月境界をパラメータ化する
     const countCall = calls.find((c) => c.text.includes("COUNT("));
     expect(countCall?.values).toContain("2026-08-01T00:00:00.000Z");
     expect(countCall?.values).toContain("2026-09-01T00:00:00.000Z");
   });
 
-  it("履歴が無ければ latestImport=null, 件数0, 未登録0", async () => {
+  it("本反映が1件も無ければ unregisteredCount=0(overall最新があっても本反映由来のみ見る)", async () => {
+    const { sql } = createFakeSql((text) => {
+      if (text.includes("COUNT(")) return [{ count: 0 }];
+      if (text.includes("dry_run = false")) return []; // 本反映は存在しない
+      return [latestOverallDryRun]; // overall 最新は dry-run で存在
+    });
+    const summary = await neonGetImportHistorySummary(
+      sql,
+      "2026-08-01T00:00:00.000Z",
+      "2026-09-01T00:00:00.000Z",
+    );
+    expect(summary.latestImport?.id).toBe(20);
+    expect(summary.unregisteredCount).toBe(0);
+    expect(summary.monthlyRealCount).toBe(0);
+  });
+
+  it("履歴が全く無ければ latestImport=null, 件数0, 未登録0", async () => {
     const { sql } = createFakeSql((text) =>
       text.includes("COUNT(") ? [{ count: 0 }] : [],
     );

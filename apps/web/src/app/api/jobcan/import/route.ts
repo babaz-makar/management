@@ -14,6 +14,7 @@ import {
   missingImportEnvVars,
   parseStaffAllowlist,
   buildImportHistoryRecord,
+  runWithTimeout,
   type JobcanImportFile,
   type JobcanImportDeps,
   type JobcanImportResult,
@@ -120,11 +121,18 @@ function buildMessage(result: JobcanImportResult, conversionErrors: ConversionEr
   return lines.join("\n");
 }
 
+/** 監査ログ書込の上限時間(M-2)。DB ハング時に本処理の応答を無制限に待たせない。 */
+const HISTORY_WRITE_TIMEOUT_MS = 4000;
+
 /**
  * 取込1回ぶんの監査行を best-effort で記録する(PII なし)。
  * 記録失敗は取込結果を握りつぶさない。生 err(接続文字列を含みうる)は出さない。
  * dry-run・本反映の両方を dry_run フラグ付きで記録する。
  * import を単一権威に保つため、runJobcanImport や import-ui には入れない。
+ *
+ * M-2: runWithTimeout で上限時間を付与し、DB ハング時は諦めて先へ進む(POST は 200 のまま)。
+ * fire-and-forget にはしない(サーバレスはレスポンス後に凍結され書込が失われうるため、
+ * 上限付きで await する)。runWithTimeout は throw しないので本処理へ影響しない。
  */
 async function recordHistory(
   databaseUrl: string,
@@ -132,14 +140,12 @@ async function recordHistory(
   conversionErrorCount: number,
   dryRun: boolean,
 ): Promise<void> {
-  try {
+  await runWithTimeout(() => {
     const store = new NeonImportHistoryStore(databaseUrl);
-    await store.insert(
+    return store.insert(
       buildImportHistoryRecord(result, conversionErrorCount, dryRun),
     );
-  } catch {
-    // 監査ログ失敗は取込結果を握りつぶさない(ベストエフォート)。
-  }
+  }, HISTORY_WRITE_TIMEOUT_MS);
 }
 
 /** Slack へ best-effort 通知(既存 notifyError と同じ bot token 経路)。失敗しても取込結果は返す。 */

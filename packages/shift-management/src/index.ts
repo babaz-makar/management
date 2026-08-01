@@ -36,6 +36,7 @@ export {
   resolveHomeState,
   formatImportDate,
   monthRangeIso,
+  currentJstYearMonth,
   APPLY_OFF_BANNER_MESSAGE,
 } from "./logic/jobcan-home-state";
 export type {
@@ -44,6 +45,22 @@ export type {
   HomePrimaryKind,
   HomeSnapshot,
 } from "./logic/jobcan-home-state";
+
+// ホーム取得結果の正規化(純関数)＋ best-effort 書込の timeout ユーティリティ
+export {
+  resolveHistoryLimit,
+  normalizeStatusResponse,
+  normalizeHistoryResponse,
+  normalizeStaffCountResponse,
+  buildHomeSnapshot,
+} from "./logic/jobcan-home-fetch";
+export type {
+  StatusFetch,
+  HistoryFetch,
+  StaffCountFetch,
+} from "./logic/jobcan-home-fetch";
+export { runWithTimeout } from "./logic/run-with-timeout";
+export type { TimeoutOutcome } from "./logic/run-with-timeout";
 
 // カレンダーupsert計画（DESIGN.md フェーズ2の純関数部分）
 export { planCalendarUpsert } from "./logic/calendar-plan";

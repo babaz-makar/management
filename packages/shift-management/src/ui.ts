@@ -41,3 +41,17 @@ export type {
   ImportHistoryRow,
   ImportHistorySummary,
 } from "./logic/jobcan-import-history-types";
+
+// ホーム取得結果の正規化(純関数・依存ゼロ)。home-client が委譲する。
+export {
+  resolveHistoryLimit,
+  normalizeStatusResponse,
+  normalizeHistoryResponse,
+  normalizeStaffCountResponse,
+  buildHomeSnapshot,
+} from "./logic/jobcan-home-fetch";
+export type {
+  StatusFetch,
+  HistoryFetch,
+  StaffCountFetch,
+} from "./logic/jobcan-home-fetch";
