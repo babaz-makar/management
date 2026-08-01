@@ -17,7 +17,9 @@ build/
 .env*.local
 
 # token store (contains OAuth refresh tokens)
-data/tokens.json
+# 先頭以外のスラッシュを含むパターンはルート起点になるため、
+# apps/web/data/tokens.json も確実に無視されるよう ** を付ける
+**/data/tokens.json
 
 # logs
 *.log
