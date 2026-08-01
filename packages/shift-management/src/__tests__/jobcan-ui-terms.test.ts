@@ -24,6 +24,10 @@ describe("JOBCAN_UI_TERMS: 表示用語の言い換えを固定", () => {
   it("同意チェックの文言", () => {
     expect(JOBCAN_UI_TERMS.consentLabel).toBe("この社員コードとメールで正しい");
   });
+
+  it("名簿の検索プレースホルダ", () => {
+    expect(JOBCAN_UI_TERMS.searchPlaceholder).toBe("社員コード / メールで検索");
+  });
 });
 
 describe("JOBCAN_TABS: 共通タブの定義(ルーティングは既存維持)", () => {
@@ -47,8 +51,8 @@ describe("importStepLabel: ステッパーの各段ラベル", () => {
 describe("importPhaseToStep: phase(内部状態)→ 表示段の写像", () => {
   it.each([
     ["idle", 1],
-    ["drying", 1],
     ["error", 1],
+    ["drying", 2],
     ["reviewed", 2],
     ["applying", 2],
     ["done", 3],

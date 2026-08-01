@@ -34,6 +34,8 @@ export const JOBCAN_UI_TERMS = {
   emailLabel: "メール",
   /** agreed(内部語)の同意チェック文言。 */
   consentLabel: "この社員コードとメールで正しい",
+  /** 名簿の検索欄プレースホルダ/aria-label。 */
+  searchPlaceholder: "社員コード / メールで検索",
 } as const;
 
 /** 取込ステッパーの段番号(1-3)→ ラベル。 */
@@ -51,8 +53,8 @@ export function importStepLabel(step: 1 | 2 | 3): string {
 /**
  * 取込の phase(内部状態)→ ステッパーの現在段(1-3)。
  * 状態ロジック自体は page.tsx が持つ。ここは表示用の写像(純関数)のみ。
- * - idle / drying: ①(選ぶ〜確認中)
- * - reviewed / applying: ②(内容を確認)
+ * - idle: ①(ファイルを選ぶ)
+ * - drying / reviewed / applying: ②(内容を確認 — dry-run 実行中も「確認」寄りが自然)
  * - done: ③(反映)
  * - error: ①へ戻す(選び直し導線)
  */
@@ -61,9 +63,9 @@ export function importPhaseToStep(
 ): 1 | 2 | 3 {
   switch (phase) {
     case "idle":
-    case "drying":
     case "error":
       return 1;
+    case "drying":
     case "reviewed":
     case "applying":
       return 2;

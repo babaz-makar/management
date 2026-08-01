@@ -1,6 +1,7 @@
 "use client";
 
 import type { StaffDirectoryEntry } from "@management/shift-management";
+import { JOBCAN_UI_TERMS } from "@management/shift-management/ui";
 import { IOS, iosType } from "../../_lib/tokens";
 import { IosCard } from "../../_components/ios";
 
@@ -54,8 +55,8 @@ export function StaffTable({ entries, query, onQueryChange, onDelete }: StaffTab
             type="search"
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="staffCode / email で検索"
-            aria-label="staffCode / email で検索"
+            placeholder={JOBCAN_UI_TERMS.searchPlaceholder}
+            aria-label={JOBCAN_UI_TERMS.searchPlaceholder}
             style={{
               flex: 1,
               border: "none",
@@ -80,8 +81,8 @@ export function StaffTable({ entries, query, onQueryChange, onDelete }: StaffTab
           <table style={{ borderCollapse: "collapse", width: "100%" }}>
             <thead>
               <tr>
-                <th style={cellHead}>staffCode</th>
-                <th style={cellHead}>email</th>
+                <th style={cellHead}>{JOBCAN_UI_TERMS.staffCodeLabel}</th>
+                <th style={cellHead}>{JOBCAN_UI_TERMS.emailLabel}</th>
                 <th style={cellHead}>操作</th>
               </tr>
             </thead>

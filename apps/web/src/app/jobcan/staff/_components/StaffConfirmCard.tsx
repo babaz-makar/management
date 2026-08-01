@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  JOBCAN_UI_TERMS,
   canSubmitStaffEntry,
   consentAfterInputChange,
   findSimilarStaffNames,
@@ -100,7 +101,7 @@ export function StaffConfirmCard({
               ...iosType("footnote"),
             }}
           >
-            staffCode(例 A0187)
+            {JOBCAN_UI_TERMS.staffCodeLabel}(例 A0187)
           </span>
           <input
             type="text"
@@ -130,7 +131,7 @@ export function StaffConfirmCard({
               ...iosType("footnote"),
             }}
           >
-            email
+            {JOBCAN_UI_TERMS.emailLabel}
           </span>
           <input
             type="email"
@@ -185,7 +186,7 @@ export function StaffConfirmCard({
           disabled={!codeValid || !emailLooksValid}
           style={{ marginRight: ".5rem" }}
         />
-        この対応(staffCode ⇄ email)で間違いない
+        {JOBCAN_UI_TERMS.consentLabel}
       </label>
 
       <IosButton
