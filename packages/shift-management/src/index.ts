@@ -36,9 +36,60 @@ export {
   getAuthUrl,
   listEventsForDate,
   executePlan,
+  calendarClient,
   verifySlackRequest,
   runPipeline,
   formatResultMessage,
   JsonFileTokenStore,
 } from "./server";
 export type { PipelineResult, TokenStore } from "./server";
+
+// ---------------------------------------------------------------------------
+// シフトリマインド機能（カレンダーのシフトを読んで Slack へ事前通知）
+// ---------------------------------------------------------------------------
+export { SHIFT_EVENT_SUMMARY } from "./logic/calendar-plan";
+export { isShiftTitle, normalizeTitle, SHIFT_TITLE_KEYWORD } from "./remind/is-shift";
+export {
+  resolveTargetDate,
+  addDays,
+  formatDateLabel,
+  jstDayRange,
+} from "./remind/target-date";
+export {
+  formatRemindMessage,
+  formatRange,
+  formatWarningMessage,
+} from "./remind/format-message";
+export type { FormatRemindOptions } from "./remind/format-message";
+export {
+  buildSetupView,
+  buildChannelsView,
+  parseSetupSubmission,
+  parseChannelsSubmission,
+  SETUP_CALLBACK_ID,
+  CHANNELS_CALLBACK_ID,
+} from "./remind/views";
+export type { SetupSubmission } from "./remind/views";
+export type {
+  RemindTiming,
+  RemindMember,
+  ShiftEntry,
+  MemberShiftResult,
+} from "./remind/types";
+export {
+  getShiftsForMember,
+  getShiftsForMembers,
+  nowJstLabel,
+  slackApi,
+  postMessage,
+  openView,
+  respondEphemeral,
+  runRemind,
+} from "./server";
+export type {
+  RunRemindOptions,
+  RunRemindResult,
+  RemindStore,
+  RemindSettings,
+  NotificationTarget,
+} from "./server";

@@ -27,7 +27,8 @@ export function getAuthUrl(oauth2: ReturnType<typeof createOAuth2Client>, state?
 // Calendar API ラッパー
 // ---------------------------------------------------------------------------
 
-function calendarClient(refreshToken: string): calendar_v3.Calendar {
+/** refresh token から Calendar クライアントを作る。パッケージ内の他モジュールからも使う */
+export function calendarClient(refreshToken: string): calendar_v3.Calendar {
   const oauth2 = createOAuth2Client();
   oauth2.setCredentials({ refresh_token: refreshToken });
   return google.calendar({ version: "v3", auth: oauth2 });
