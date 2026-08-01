@@ -56,6 +56,13 @@ export type {
   StaffCountFetch,
 } from "./logic/jobcan-home-fetch";
 
+// スタッフ名簿 登録フォームの同意ゲート判定(純関数・依存ゼロ)。
+export {
+  consentAfterInputChange,
+  canSubmitStaffEntry,
+} from "./logic/staff-consent";
+export type { StaffEntryGate } from "./logic/staff-consent";
+
 // iOS 風リスキンのデザイントークン + style 生成ヘルパ(純関数・依存ゼロ)。
 export {
   IOS,

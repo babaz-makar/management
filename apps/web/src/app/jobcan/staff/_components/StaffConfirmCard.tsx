@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { findSimilarStaffNames } from "@management/shift-management/ui";
+import {
+  canSubmitStaffEntry,
+  consentAfterInputChange,
+  findSimilarStaffNames,
+} from "@management/shift-management/ui";
 import type { StaffDirectoryEntry } from "@management/shift-management";
 import { isValidStaffCode, type SlackCheckResult } from "../_lib/staff-client";
 import { SlackCheckButton } from "./SlackCheckButton";
@@ -69,7 +73,12 @@ export function StaffConfirmCard({
     return findSimilarStaffNames(emailTrimmed, candidates);
   }, [entries, emailTrimmed, emailLooksValid]);
 
-  const canSubmit = codeValid && emailLooksValid && agreed && !busy;
+  const canSubmit = canSubmitStaffEntry({
+    codeValid,
+    emailLooksValid,
+    agreed,
+    busy,
+  });
 
   function handleSubmit() {
     if (!canSubmit) return;
@@ -96,7 +105,11 @@ export function StaffConfirmCard({
           <input
             type="text"
             value={staffCode}
-            onChange={(e) => setStaffCode(e.target.value)}
+            onChange={(e) => {
+              setStaffCode(e.target.value);
+              // O-1: 対応が変わったら同意を無効化(email 変更と対称)。
+              setAgreed(consentAfterInputChange());
+            }}
             placeholder="A0187"
             style={{ ...inputStyle, width: 180, marginTop: 4 }}
           />
@@ -125,7 +138,8 @@ export function StaffConfirmCard({
             onChange={(e) => {
               setEmail(e.target.value);
               setSlackResult(null);
-              setAgreed(false);
+              // O-1: 対応が変わったら同意を無効化(staffCode 変更と対称)。
+              setAgreed(consentAfterInputChange());
             }}
             placeholder="name@example.com"
             style={{ ...inputStyle, width: 300, maxWidth: "100%", marginTop: 4 }}
