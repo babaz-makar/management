@@ -7,6 +7,7 @@ import {
   describeHttpError,
   isValidStaffCode,
   STAFF_CODE_PATTERN,
+  translateJobcanServerError,
 } from "@management/shift-management/ui";
 
 // staffCode 形式判定は packages の純関数へ集約(テスト可能)。既存 import 互換のため再輸出する。
@@ -59,17 +60,22 @@ async function parseJsonSafe(response: Response): Promise<unknown> {
 }
 
 /**
- * 非 2xx を人間語へ翻訳する。サーバー明示メッセージがあれば優先し、
- * 無ければ HTTP ステータスで翻訳する(ネットワーク障害と混同しない)。
- * ステータス翻訳の本体は packages の describeHttpError に集約(テスト可能)。
+ * 非 2xx を人間語へ翻訳する。
+ *
+ * サーバーの `error` は英語の機械コード("server misconfigured" 等)なので**生のまま表示しない**。
+ * 既知コードだけ日本語へ写し(translateJobcanServerError)、未知(検証エラーの生 err.message 等)は
+ * HTTP ステータスベースの日本語へ落とす(describeHttpError に serverMessage を渡さない)。
+ * これで英語コードが画面に露出しない。翻訳の本体は packages の純関数に集約(テスト可能)。
  */
 function translateHttpError(
   status: number,
   body: unknown,
   fallback: string,
 ): string {
-  const serverMessage = readServerMessage(body);
-  return describeHttpError(status, serverMessage ?? undefined, fallback);
+  const serverCode = readServerMessage(body);
+  const known = serverCode ? translateJobcanServerError(serverCode) : null;
+  if (known) return known;
+  return describeHttpError(status, undefined, fallback);
 }
 
 /** 名簿全件を取得する。 */

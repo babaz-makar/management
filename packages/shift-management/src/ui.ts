@@ -56,6 +56,9 @@ export type {
   StaffCountFetch,
 } from "./logic/jobcan-home-fetch";
 
+// jobcan API の英語エラーコード→利用者向け日本語の翻訳(純関数・依存ゼロ)。
+export { translateJobcanServerError } from "./logic/jobcan-error-messages";
+
 // jobcan 3 画面の表示用語・タブ定義・ステッパー写像(純データ/純関数・依存ゼロ)。
 export {
   JOBCAN_TABS,
