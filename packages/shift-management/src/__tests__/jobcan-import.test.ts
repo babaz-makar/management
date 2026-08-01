@@ -275,6 +275,32 @@ describe("runJobcanImport: 一ファイルの失敗を他ファイル/他人に�
     expect(calls.some((c) => c.staffCode === "A0187")).toBe(false);
   });
 
+  it("ファイル名の括弧内が小文字 staffCode様(手動改名の異常)は filename_parse_error で隔離、他は継続", async () => {
+    const calls: ReconcileCall[] = [];
+    const deps = makeDeps({
+      directory: { A0187: "a@example.com", B0002: "b@example.com" },
+      resolve: okResolve({ "a@example.com": "rt-A", "b@example.com": "rt-B" }),
+      calls,
+    });
+    // 括弧内が小文字(a0187)。シート側は正規の A0187 だが、ファイル名が壊れている時点で
+    // 取り違え兆候として弾く(silent にシートコードで取り込ませない)。
+    const files = [
+      file("馬場(a0187) 2026年08月度.xlsx", "A0187"),
+      file("佐藤(B0002) 2026年08月度.xlsx", "B0002"),
+    ];
+
+    const result = await runJobcanImport(files, deps, DRY);
+
+    expect(result.fileErrors).toHaveLength(1);
+    expect(result.fileErrors[0]).toMatchObject({
+      fileName: "馬場(a0187) 2026年08月度.xlsx",
+      reason: "filename_parse_error",
+    });
+    // 壊れたファイルの entries は集約に載らず、正常な B0002 だけ継続
+    expect(result.reconcile.reconciled.map((r) => r.staffCode)).toEqual(["B0002"]);
+    expect(calls.some((c) => c.staffCode === "A0187")).toBe(false);
+  });
+
   it("ファイル名パース失敗(年月なし)のファイルだけ隔離、他は継続", async () => {
     const calls: ReconcileCall[] = [];
     const deps = makeDeps({

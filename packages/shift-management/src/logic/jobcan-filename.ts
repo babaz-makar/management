@@ -10,6 +10,14 @@ import { normalizeText } from "./normalize";
 const STAFF_CODE_RE = /^[A-Z]\d{4}$/;
 
 /**
+ * staffCode「様」書式(大小英字1文字+数字4桁)。大文字/小文字を問わずコード形状に合致するか。
+ * STAFF_CODE_RE(大文字のみ許可)に合致しないのにこの形状には合致する = 小文字混入等の
+ * 「壊れた staffCode」。手動改名の異常兆候なので undefined で握りつぶさず取り違え検知に回す。
+ * A1(桁不足)・1234(英字なし)・Z99999(桁超過)等は形状に非該当=正当な省略として扱う。
+ */
+const STAFF_CODE_SHAPE_RE = /^[A-Za-z]\d{4}$/;
+
+/**
  * ファイル名中の対象年月。"2026年08月度" / "2026年8月度" の双方を許容。
  * normalizeText 後に評価するので全角数字・全角空白も半角へ寄った状態で判定する。
  * g フラグで全候補を走査し、相異なる年月が複数あれば fail-loud で弾く
@@ -26,8 +34,8 @@ const PAREN_RE = /[（(]([^）)]*)[）)]/g;
  * 例: "馬場優蔵(A0187) 2026年08月度.xlsx" → { year: 2026, month: 8, staffCodeInName: "A0187" }
  *
  * - 年月は "YYYY年M月"（ゼロ埋め・非ゼロ埋め両対応）。全角括弧（）・全角空白も許容。
- * - 括弧内文字列は STAFF_CODE_RE に合致する時だけ staffCodeInName に載せる。
- *   合致しない/括弧なしなら staffCodeInName は undefined（ここでは throw しない）。
+ * - 括弧内トークンを3分類: 大文字 staffCode は採用、staffCode様だが書式外(小文字混入等)は
+ *   取り違え兆候として throw、staffCode様ですらない(会社名・桁数違い)/括弧なしは undefined。
  * - 年月が取れない、または月が 1-12 の範囲外なら throw（fail-loud、既定値を推測しない）。
  */
 export function parseJobcanFileName(fileName: string): {
@@ -64,16 +72,32 @@ export function parseJobcanFileName(fileName: string): {
     );
   }
 
-  // 全ての括弧を走査し、STAFF_CODE_RE に合致する最初の中身を採る。
-  // "田中(株)(A0187)" のように前段に会社名等の括弧があっても取りこぼさない。
+  return { year, month, staffCodeInName: extractStaffCodeInName(normalized) };
+}
+
+/**
+ * 正規化済みファイル名から括弧内 staffCode を取り出す。括弧内トークンを3分類する:
+ *  1. 正規の大文字 staffCode(STAFF_CODE_RE) → 採用(最初の1件)。
+ *  2. staffCode様だが大文字書式に合わない(小文字混入等) → 取り違え兆候として throw。
+ *  3. staffCode様ですらない(会社名・部門・桁数違い等) → 正当な省略として無視。
+ * 3を先に除外(どちらの正規表現にも非該当)するので、2の判定に到達した時点で「壊れたコード」確定。
+ * "田中(株)(A0187)" のように前段の括弧があっても取りこぼさず、
+ * "田中(株)(b0999)" のように壊れたコードが混じれば走査を最後まで続け1枚も落とさず弾く。
+ */
+function extractStaffCodeInName(normalized: string): string | undefined {
   let staffCodeInName: string | undefined;
   for (const m of normalized.matchAll(PAREN_RE)) {
     const candidate = m[1].trim();
     if (STAFF_CODE_RE.test(candidate)) {
-      staffCodeInName = candidate;
-      break;
+      if (staffCodeInName === undefined) staffCodeInName = candidate;
+      continue; // 走査は続行(後段に壊れたコードが無いか最後まで確認する)
+    }
+    if (STAFF_CODE_SHAPE_RE.test(candidate)) {
+      throw new Error(
+        `ファイル名の括弧内(${candidate})が staffCode 書式(大文字1文字+数字4桁)に合致しません。` +
+          "手動改名等でコードが壊れたファイル取り違えの兆候のため、取込を中止します",
+      );
     }
   }
-
-  return { year, month, staffCodeInName };
+  return staffCodeInName;
 }

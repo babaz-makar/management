@@ -55,11 +55,24 @@ describe("parseJobcanFileName: staffCode の抽出と書式検証", () => {
     expect(result.staffCodeInName).toBeUndefined();
   });
 
-  it("括弧内が小文字始まり(a0187)なら書式外で undefined(大文字前提。別人紐付けを誘発しないよう不採用)", () => {
-    const result = parseJobcanFileName("馬場優蔵(a0187) 2026年08月度.xlsx");
-    expect(result.staffCodeInName).toBeUndefined();
-    expect(result.year).toBe(2026);
-    expect(result.month).toBe(8);
+  it("括弧内が小文字始まり(a0187)=staffCode様だが大文字書式に合わない → 取り違え兆候として throw(undefined で握りつぶさない)", () => {
+    // 手動改名で小文字が混入した異常ファイルは、シート側検証済みコードで silent に
+    // 取り込ませず fail-loud。呼び出し側は filename_parse_error として隔離できる。
+    expect(() =>
+      parseJobcanFileName("馬場優蔵(a0187) 2026年08月度.xlsx"),
+    ).toThrow();
+  });
+
+  it("括弧内が小文字境界(z9999)でも staffCode様書式なら throw(下限境界)", () => {
+    expect(() =>
+      parseJobcanFileName("試 太郎(z9999) 2026年08月度.xlsx"),
+    ).toThrow();
+  });
+
+  it("複数括弧のどれかが小文字 staffCode様(田中(株)(b0999))なら throw(取り違え兆候を1枚も落とさない)", () => {
+    expect(() =>
+      parseJobcanFileName("田中(株)(b0999) 2026年08月度.xlsx"),
+    ).toThrow();
   });
 
   it("括弧内が大文字始まり(A0187)なら従来どおり採用する(統一先=大文字のみ許可の正常系)", () => {
