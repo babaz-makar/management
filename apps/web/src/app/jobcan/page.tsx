@@ -1,7 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { COLORS, PAGE_STYLE } from "./_lib/tokens";
+import { IOS, iosType } from "./_lib/tokens";
+import {
+  IosButton,
+  IosCallout,
+  PageHeader,
+  Screen,
+} from "./_components/ios";
 import {
   checkClientLimits,
   postImport,
@@ -99,15 +105,22 @@ export default function JobcanImportPage() {
     `/jobcan/staff?code=${encodeURIComponent(staffCode)}`;
 
   return (
-    <main style={PAGE_STYLE}>
-      <h1 style={{ marginBottom: ".25rem" }}>ジョブカン確定シフト取込</h1>
-      <p style={{ color: COLORS.muted, marginTop: 0 }}>
-        xlsx をアップロードし、まず dry-run で内容を確認してから本反映します。dry-run
-        の間はカレンダーを一切変更しません。
-        <a href="/jobcan/staff" style={{ marginLeft: ".75rem" }}>
-          スタッフ名簿へ
-        </a>
-      </p>
+    <Screen>
+      <PageHeader
+        title="ジョブカン確定シフト取込"
+        description={
+          <>
+            xlsx をアップロードし、まず dry-run で内容を確認してから本反映します。dry-run
+            の間はカレンダーを一切変更しません。
+            <a
+              href="/jobcan/staff"
+              style={{ marginLeft: ".75rem", color: IOS.color.blue, textDecoration: "none" }}
+            >
+              スタッフ名簿へ
+            </a>
+          </>
+        }
+      />
 
       <FileDropZone
         files={files}
@@ -118,40 +131,34 @@ export default function JobcanImportPage() {
         onClear={clearFiles}
       />
 
-      <div style={{ marginBottom: "1.5rem" }}>
-        <button
-          type="button"
+      <div style={{ marginBottom: 24 }}>
+        <IosButton
+          variant="filled"
+          fullWidth
+          size="primary"
           onClick={runDryRun}
           disabled={files.length === 0 || busy}
         >
           dry-run で確認(カレンダーは変更しません)
-        </button>
+        </IosButton>
       </div>
 
       {phase === "drying" && (
-        <p style={{ color: COLORS.muted }}>
+        <p style={{ color: IOS.color.secondaryLabel, ...iosType("subhead") }}>
           {files.length}件を照合中… カレンダーはまだ変更していません。
         </p>
       )}
 
       {phase === "applying" && (
-        <p style={{ color: COLORS.muted }}>本反映中… カレンダーへ書き込んでいます。</p>
+        <p style={{ color: IOS.color.secondaryLabel, ...iosType("subhead") }}>
+          本反映中… カレンダーへ書き込んでいます。
+        </p>
       )}
 
       {phase === "error" && errorMessage && (
-        <section
-          style={{
-            padding: "0.9rem 1.1rem",
-            background: COLORS.dangerBg,
-            border: `1px solid ${COLORS.dangerBorder}`,
-            borderRadius: 6,
-            color: COLORS.danger,
-            marginBottom: "1.25rem",
-          }}
-        >
-          <strong>エラー</strong>
-          <p style={{ margin: ".4rem 0 0" }}>{errorMessage}</p>
-        </section>
+        <IosCallout tone="danger" title="エラー" style={{ marginBottom: 20 }}>
+          {errorMessage}
+        </IosCallout>
       )}
 
       {result && (phase === "reviewed" || phase === "done") && (
@@ -168,40 +175,28 @@ export default function JobcanImportPage() {
           />
           <WarningList warnings={result.warnings} staffHref={staffHref} />
           {result.reconcileError && (
-            <section
-              style={{
-                padding: "0.9rem 1.1rem",
-                background: COLORS.dangerBg,
-                border: `1px solid ${COLORS.dangerBorder}`,
-                borderRadius: 6,
-                color: COLORS.danger,
-                marginBottom: "1.25rem",
-              }}
+            <IosCallout
+              tone="danger"
+              title="突合でエラーが発生しました"
+              style={{ marginBottom: 20 }}
             >
-              <strong>突合でエラーが発生しました</strong>
-              <p style={{ margin: ".4rem 0 0" }}>{result.reconcileError}</p>
-            </section>
+              {result.reconcileError}
+            </IosCallout>
           )}
 
           {phase === "reviewed" && (
             <div>
-              <p style={{ color: COLORS.muted }}>
+              <p style={{ color: IOS.color.secondaryLabel, ...iosType("subhead") }}>
                 ここまでで変更は加えていません。内容を確認して本反映してください。
               </p>
-              <button
-                type="button"
+              <IosButton
+                variant={danger ? "destructive" : "filled"}
+                fullWidth
+                size="primary"
                 onClick={() => setShowConfirm(true)}
-                style={{
-                  background: danger ? COLORS.danger : COLORS.text,
-                  color: "#fff",
-                  border: "none",
-                  padding: ".55rem 1.1rem",
-                  borderRadius: 4,
-                  cursor: "pointer",
-                }}
               >
                 本反映する{danger ? "(危険な変更あり)" : ""}
-              </button>
+              </IosButton>
             </div>
           )}
         </>
@@ -216,6 +211,6 @@ export default function JobcanImportPage() {
           onCancel={() => setShowConfirm(false)}
         />
       )}
-    </main>
+    </Screen>
   );
 }

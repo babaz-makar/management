@@ -1,7 +1,8 @@
 "use client";
 
 import type { JobcanImportSummary } from "@management/shift-management";
-import { COLORS } from "../_lib/tokens";
+import { IOS, iosType } from "../_lib/tokens";
+import { GroupedList, ListRow } from "./ios";
 
 interface DryRunSummaryBarProps {
   summary: JobcanImportSummary;
@@ -11,73 +12,79 @@ interface DryRunSummaryBarProps {
   danger: boolean;
 }
 
-interface StatProps {
+interface StatRowProps {
   label: string;
   value: number;
   emphasize?: boolean;
+  last?: boolean;
 }
 
-function Stat({ label, value, emphasize }: StatProps) {
+/** ラベル左(グレー)…値右(強調時 headline 赤)の 1 行。 */
+function StatRow({ label, value, emphasize, last }: StatRowProps) {
   return (
-    <span
-      style={{
-        display: "inline-block",
-        marginRight: "1.25rem",
-        fontWeight: emphasize ? 700 : 400,
-        color: emphasize ? COLORS.danger : COLORS.text,
-      }}
-    >
-      {label}: {value}
-    </span>
+    <ListRow
+      title={label}
+      last={last}
+      detail={
+        <span
+          style={{
+            color: emphasize ? IOS.color.redText : IOS.color.label,
+            ...(emphasize ? iosType("headline") : iosType("subhead")),
+          }}
+        >
+          {value}
+        </span>
+      }
+    />
   );
 }
 
-/** 合計件数サマリ帯(per-staff/per-日の明細は出さない=最小プレビュー)。 */
+/** 合計件数サマリ(per-staff/per-日の明細は出さない=最小プレビュー)。 */
 export function DryRunSummaryBar({ summary, applied, danger }: DryRunSummaryBarProps) {
-  const bg = danger ? COLORS.dangerBg : applied ? COLORS.successBg : COLORS.surface;
-  const border = danger
-    ? COLORS.dangerBorder
+  const headline = applied
+    ? "本反映が完了しました(カレンダーを更新しました)"
+    : "dry-run 結果 — カレンダーはまだ変更していません";
+  const headlineColor = danger
+    ? IOS.color.redText
     : applied
-      ? COLORS.successBorder
-      : COLORS.border;
+      ? IOS.color.greenText
+      : IOS.color.label;
 
   return (
-    <section
-      style={{
-        padding: "0.9rem 1.1rem",
-        background: bg,
-        border: `1px solid ${border}`,
-        borderRadius: 6,
-        marginBottom: "1.25rem",
-      }}
-    >
-      <p style={{ margin: "0 0 .5rem", fontWeight: 700 }}>
-        {applied
-          ? "本反映が完了しました(カレンダーを更新しました)"
-          : "dry-run 結果 — カレンダーはまだ変更していません"}
+    <section style={{ marginBottom: 20 }}>
+      <p
+        style={{
+          margin: "0 0 8px",
+          padding: "0 4px",
+          color: headlineColor,
+          ...iosType("headline"),
+        }}
+      >
+        {headline}
       </p>
-      <div style={{ lineHeight: 1.9 }}>
-        <Stat label="対象ファイル" value={summary.totalFiles} />
-        <Stat label="取込成功" value={summary.importedFiles} />
-        <Stat
+      <GroupedList>
+        <StatRow label="対象ファイル" value={summary.totalFiles} />
+        <StatRow label="取込成功" value={summary.importedFiles} />
+        <StatRow
           label="エラー"
           value={summary.erroredFiles}
           emphasize={summary.erroredFiles > 0}
         />
-        <Stat label="総エントリ" value={summary.totalEntries} />
-        <Stat label="対象(人×月)" value={summary.staffMonthCount} />
-        <Stat label="作成予定" value={summary.totalCreates} />
-        <Stat
+        <StatRow label="総エントリ" value={summary.totalEntries} />
+        <StatRow label="対象(人×月)" value={summary.staffMonthCount} />
+        <StatRow label="作成予定" value={summary.totalCreates} />
+        <StatRow
           label="削除予定"
           value={summary.totalDeletes}
           emphasize={summary.totalDeletes > 0}
         />
-        <Stat
+        <StatRow
           label="警告"
           value={summary.warningCount}
           emphasize={summary.warningCount > 0}
+          last
         />
-      </div>
+      </GroupedList>
     </section>
   );
 }

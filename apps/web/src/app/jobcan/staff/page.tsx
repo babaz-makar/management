@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { StaffDirectoryEntry } from "@management/shift-management";
-import { COLORS, PAGE_STYLE } from "../_lib/tokens";
+import { IOS } from "../_lib/tokens";
+import {
+  IosCallout,
+  IosLoading,
+  PageHeader,
+  Screen,
+} from "../_components/ios";
 import {
   deleteStaff,
   fetchStaff,
@@ -103,31 +109,31 @@ export default function StaffDirectoryPage() {
     initialCode.length > 0 && entries.some((e) => e.staffCode === initialCode);
 
   return (
-    <main style={PAGE_STYLE}>
-      <h1 style={{ marginBottom: ".25rem" }}>スタッフ名簿(staffCode ⇄ email)</h1>
-      <p style={{ color: COLORS.muted, marginTop: 0 }}>
-        取込で email を引き当てるための対応表です。
-        <a href="/jobcan" style={{ marginLeft: ".75rem" }}>
-          取込画面へ戻る
-        </a>
-      </p>
+    <Screen>
+      <PageHeader
+        title="スタッフ名簿(staffCode ⇄ email)"
+        description={
+          <>
+            取込で email を引き当てるための対応表です。
+            <a
+              href="/jobcan"
+              style={{ marginLeft: ".75rem", color: IOS.color.blue, textDecoration: "none" }}
+            >
+              取込画面へ戻る
+            </a>
+          </>
+        }
+      />
 
       {notice && (
-        <div style={{ color: COLORS.success, marginBottom: "1rem" }}>{notice}</div>
+        <IosCallout tone="success" style={{ marginBottom: 16 }}>
+          {notice}
+        </IosCallout>
       )}
       {error && (
-        <div
-          style={{
-            padding: ".6rem .9rem",
-            background: COLORS.dangerBg,
-            border: `1px solid ${COLORS.dangerBorder}`,
-            borderRadius: 4,
-            color: COLORS.danger,
-            marginBottom: "1rem",
-          }}
-        >
+        <IosCallout tone="danger" style={{ marginBottom: 16 }}>
           {error}
-        </div>
+        </IosCallout>
       )}
 
       <UnregisteredList staffCode={initialCode} alreadyRegistered={alreadyRegistered} />
@@ -140,7 +146,7 @@ export default function StaffDirectoryPage() {
       />
 
       {loading ? (
-        <p style={{ color: COLORS.muted }}>名簿を読み込み中…</p>
+        <IosLoading label="名簿を読み込み中…" />
       ) : (
         <StaffTable
           entries={entries}
@@ -173,6 +179,6 @@ export default function StaffDirectoryPage() {
           onCancel={() => setPending(null)}
         />
       )}
-    </main>
+    </Screen>
   );
 }

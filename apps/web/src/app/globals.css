@@ -20,3 +20,24 @@ body {
   background: #fff;
   color: #111;
 }
+
+/*
+ * iOS 風リスキンのローディング表示用(最小 1 クラス)。
+ * インライン style では @keyframes を宣言できないため、回転アニメだけここに置く。
+ * 使う側は className="ios-spin" を付けた円環要素を描画する。
+ */
+@keyframes ios-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ios-spin {
+  animation: ios-spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ios-spin {
+    animation-duration: 2.4s;
+  }
+}

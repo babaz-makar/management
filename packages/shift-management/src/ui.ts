@@ -55,3 +55,22 @@ export type {
   HistoryFetch,
   StaffCountFetch,
 } from "./logic/jobcan-home-fetch";
+
+// iOS 風リスキンのデザイントークン + style 生成ヘルパ(純関数・依存ゼロ)。
+export {
+  IOS,
+  IOS_FONT_FAMILY,
+  iosType,
+  iosButtonColors,
+  iosCalloutColors,
+  iosRowBackground,
+} from "./logic/ios-tokens";
+export type {
+  IosTypeLevel,
+  IosTypeStyle,
+  IosButtonVariant,
+  IosButtonState,
+  IosButtonColors,
+  IosCalloutTone,
+  IosCalloutColors,
+} from "./logic/ios-tokens";

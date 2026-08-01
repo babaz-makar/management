@@ -1,7 +1,7 @@
 "use client";
 
 import type { JobcanImportFileError } from "@management/shift-management";
-import { COLORS } from "../_lib/tokens";
+import { IosCallout } from "./ios";
 
 interface DangerZoneProps {
   totalDeletes: number;
@@ -17,34 +17,24 @@ export function DangerZone({ totalDeletes, mismatchFiles }: DangerZoneProps) {
   if (!hasDanger) return null;
 
   return (
-    <section
-      style={{
-        padding: "1rem 1.2rem",
-        background: COLORS.dangerBg,
-        border: `2px solid ${COLORS.danger}`,
-        borderRadius: 6,
-        marginBottom: "1.25rem",
-        color: COLORS.danger,
-      }}
-    >
-      <h3 style={{ margin: "0 0 .5rem" }}>危険な変更が含まれます</h3>
+    <IosCallout tone="danger" title="危険な変更が含まれます" style={{ marginBottom: 20 }}>
       {totalDeletes > 0 && (
-        <p style={{ margin: ".25rem 0", fontWeight: 700 }}>
+        <p style={{ margin: "4px 0", fontWeight: 700 }}>
           カレンダーから {totalDeletes} 件の予定を削除します。
         </p>
       )}
       {mismatchFiles.length > 0 && (
-        <div style={{ marginTop: ".5rem" }}>
-          <p style={{ margin: ".25rem 0", fontWeight: 700 }}>
+        <div style={{ marginTop: 8 }}>
+          <p style={{ margin: "4px 0", fontWeight: 700 }}>
             ファイル取り違えの兆候({mismatchFiles.length}件):
           </p>
-          <ul style={{ margin: ".25rem 0 0", paddingLeft: "1.2rem" }}>
+          <ul style={{ margin: "4px 0 0", paddingLeft: "1.2rem" }}>
             {mismatchFiles.map((file, index) => (
               <li key={`${file.fileName}-${index}`}>{file.fileName}</li>
             ))}
           </ul>
         </div>
       )}
-    </section>
+    </IosCallout>
   );
 }

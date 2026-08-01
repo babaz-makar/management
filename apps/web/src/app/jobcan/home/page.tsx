@@ -6,7 +6,17 @@ import {
   resolveHomeState,
   type HomeState,
 } from "@management/shift-management/ui";
-import { COLORS, PAGE_STYLE } from "../_lib/tokens";
+import { IOS, iosType } from "../_lib/tokens";
+import {
+  GroupedList,
+  IosButton,
+  IosCallout,
+  IosCard,
+  IosLoading,
+  ListRow,
+  PageHeader,
+  Screen,
+} from "../_components/ios";
 import { loadHomeSnapshot } from "./_lib/home-client";
 
 /** 直近取込のサマリ(件数)を1行に整形する(PII なし)。 */
@@ -39,85 +49,75 @@ export default function JobcanHomePage() {
   const summary = state ? summaryLine(state) : null;
 
   return (
-    <main style={PAGE_STYLE}>
-      <h1 style={{ marginBottom: ".25rem" }}>ジョブカン連携ホーム</h1>
-      <p style={{ color: COLORS.muted, marginTop: 0 }}>
-        取込の状況をまとめて確認できます。
-        <a href="/jobcan" style={{ marginLeft: ".75rem" }}>
-          取込画面へ
-        </a>
-        <a href="/jobcan/staff" style={{ marginLeft: ".75rem" }}>
-          スタッフ名簿へ
-        </a>
-      </p>
+    <Screen>
+      <PageHeader
+        title="ジョブカン連携ホーム"
+        description="取込の状況をまとめて確認できます。"
+      />
 
       {state?.showApplyOffBanner && (
-        <div
-          style={{
-            padding: ".6rem .9rem",
-            background: COLORS.warningBg,
-            border: `1px solid ${COLORS.warningBorder}`,
-            borderRadius: 4,
-            color: COLORS.warning,
-            marginBottom: "1rem",
-          }}
-        >
+        <IosCallout tone="warning" style={{ marginBottom: 16 }}>
           {APPLY_OFF_BANNER_MESSAGE}
-        </div>
+        </IosCallout>
       )}
 
       {loading || !state ? (
-        <p style={{ color: COLORS.muted }}>状態を確認中…</p>
+        <IosLoading label="状態を確認中…" />
       ) : (
-        <section
-          style={{
-            padding: "1rem 1.2rem",
-            background: isError ? COLORS.dangerBg : COLORS.surface,
-            border: `1px solid ${isError ? COLORS.dangerBorder : COLORS.border}`,
-            borderRadius: 6,
-            marginBottom: "1.25rem",
-          }}
+        <IosCard
+          tone={isError ? "danger" : "default"}
+          radius={IOS.metrics.radiusHero}
+          padding={20}
+          style={{ marginBottom: 24 }}
         >
           <p
             style={{
               margin: 0,
-              fontWeight: 600,
-              color: isError ? COLORS.danger : COLORS.text,
+              color: isError ? IOS.color.redText : IOS.color.label,
+              ...iosType("title3"),
             }}
           >
             {state.primary.message}
           </p>
 
           {summary && (
-            <p style={{ margin: ".5rem 0 0", color: COLORS.muted }}>{summary}</p>
+            <p
+              style={{
+                margin: "8px 0 0",
+                color: IOS.color.secondaryLabel,
+                ...iosType("subhead"),
+              }}
+            >
+              {summary}
+            </p>
           )}
 
-          <div style={{ marginTop: ".9rem" }}>
+          <div style={{ marginTop: 16 }}>
             {isError ? (
-              <button type="button" onClick={() => void reload()}>
+              <IosButton variant="tinted" onClick={() => void reload()}>
                 再読み込み
-              </button>
+              </IosButton>
             ) : (
               state.primary.ctaHref &&
               state.primary.ctaLabel && (
-                <a
+                <IosButton
+                  variant="filled"
+                  fullWidth
+                  size="primary"
                   href={state.primary.ctaHref}
-                  style={{
-                    display: "inline-block",
-                    background: COLORS.text,
-                    color: "#fff",
-                    padding: ".5rem 1rem",
-                    borderRadius: 4,
-                    textDecoration: "none",
-                  }}
                 >
                   {state.primary.ctaLabel}
-                </a>
+                </IosButton>
               )
             )}
           </div>
-        </section>
+        </IosCard>
       )}
-    </main>
+
+      <GroupedList>
+        <ListRow title="取込画面へ" href="/jobcan" />
+        <ListRow title="スタッフ名簿へ" href="/jobcan/staff" last />
+      </GroupedList>
+    </Screen>
   );
 }
