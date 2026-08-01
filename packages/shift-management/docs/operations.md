@@ -33,7 +33,7 @@
 | `GOOGLE_CLIENT_ID` | Google OAuth クライアント ID | 取込ルートが 500 |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth クライアントシークレット | 取込ルートが 500 |
 | `GOOGLE_REDIRECT_URI` | Google OAuth リダイレクト URI | 取込ルートが 500 |
-| `JOBCAN_IMPORT_SECRET` | 取込ルート（`/api/jobcan/import`）の Bearer 共有シークレット。**十分長いランダム値**にする。**空白のみは禁止**（設定済みに見えて実質空になり得るため） | ルートが全拒否（未設定＝fail-closed で全 POST を弾く） |
+| `JOBCAN_IMPORT_SECRET` | 取込ルート（`/api/jobcan/import`）の Bearer 共有シークレット。**十分長いランダム値**にする。**空白のみは禁止**（設定済みに見えて実質空になり得るため） | 未設定なら 500（server misconfigured）で全 POST を拒否（fail-closed） |
 
 ### 1.2 安全・運用スイッチ
 
@@ -123,7 +123,8 @@ staffCode ↔ email の対応を人間が確定して登録する。
 ### staffCode の書式（統一方針）
 
 - **staffCode = 大文字英字1 + 数字4桁（`^[A-Z]\d{4}$`、例 A0187）。** 小文字は弾く（社長判断）。
-- 名簿・allowlist・UI バリデーションはこの大文字限定に揃っている。パーサ側も同じ書式へ統一する（[design.md](./design.md) 論点2-9）。
+- 名簿・allowlist・UI バリデーションはこの大文字限定に揃っている。パーサ側（sheet/filename）も `^[A-Z]\d{4}$` に統一済み（[design.md](./design.md) 論点2-9）。
+  小文字コードはパーサ側でも弾く（sheet は throw で当該ファイル取込中止、filename は staffCodeInName を不採用＝undefined）。
 
 ---
 
@@ -139,7 +140,7 @@ staffCode ↔ email の対応を人間が確定して登録する。
 
 正直に明示する。**本ドキュメント作成時点で、実 env 下の実データ E2E は未実施。**
 
-- 純関数・server 層・各ユニットは検証済み（415 テスト green、スネイプ／ムーディ通過）。
+- 純関数・server 層・各ユニットは検証済み（419 テスト green、スネイプ／ムーディ通過）。
 - ただし **実 `DATABASE_URL` / `SLACK_BOT_TOKEN` / `GOOGLE_*` / `JOBCAN_IMPORT_SECRET` を入れた環境で、
   実 xlsx → dry-run → apply までを画面で通した検証はまだ行っていない。** ローカルに秘密（.env）を置かない方針のため。
 - **デプロイ時に、社長環境で以下を最初に確認すること:**
@@ -156,5 +157,3 @@ staffCode ↔ email の対応を人間が確定して登録する。
 - [requirements.md](./requirements.md) — 目的・利用者・安全要件（WHAT / WHY）
 - [design.md](./design.md) — アーキテクチャ・設計判断の記録（HOW）
 - [plan.md](./plan.md) — ステップ一覧と進行状況（WHEN / STEPS）
-</content>
-</invoke>
