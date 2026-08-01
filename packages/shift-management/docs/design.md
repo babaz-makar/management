@@ -244,8 +244,10 @@ xlsx アップロード（複数）
 - **理由:** 名簿（`staff-directory.ts`）・allowlist・共有判定（`staff-code.ts`）・UI バリデーションは既に大文字限定。
   一方でパーサ（`parsers/jobcan-sheet.ts` / `logic/jobcan-filename.ts`）は当初 `^[A-Za-z]\d{4}$`（小文字許容）で、
   `a0187` がパースは通るのに名簿 get で throw する非対称があった。書式を1つに揃えて事故面を無くす。
-- **実装（事実）:** 名簿・allowlist・`staff-code.ts` は `^[A-Z]\d{4}$` で確定済み。パーサ側も同じ大文字限定へ統一する
-  （その前提で本書・[operations.md](./operations.md) を記述する）。実データは大文字（A0187）で来るため実害には当たっていない。
+- **実装（事実）:** 名簿・allowlist・`staff-code.ts` に加え、パーサ（`parsers/jobcan-sheet.ts` / `logic/jobcan-filename.ts`）も
+  `^[A-Z]\d{4}$` に統一済み（4者すべて統一完了・419 テスト green・`a0187` が false になることを検証済み）。
+  小文字コードは sheet が throw で当該ファイル取込中止、filename は staffCodeInName を不採用（undefined）とする。
+  実データは大文字（A0187）で来るため実害には当たっていない。
 
 ---
 
@@ -302,4 +304,3 @@ xlsx アップロード（複数）
 - [requirements.md](./requirements.md) — 目的・利用者・安全要件（WHAT / WHY）
 - [plan.md](./plan.md) — ステップ一覧と進行状況（WHEN / STEPS）
 - [operations.md](./operations.md) — デプロイ・運用手順（環境変数・安全設計・運用注意）
-</content>

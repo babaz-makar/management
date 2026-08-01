@@ -97,14 +97,14 @@
   - client 安全バレル `@management/shift-management/ui`（純葉のみ・crypto/googleapis 非混入をビルドで実証）。
 
 - [x] **2-9 書込ガード仕上げ**
-  完了・クローズ（スネイプ合格 → ムーディ条件付き GO・実弾で破れず。**415 テスト green**）。
+  完了・クローズ（スネイプ合格 → ムーディ条件付き GO・実弾で破れず。**419 テスト green**）。
   - staffCode allowlist 第二関門（`parseStaffAllowlist(env) → Set | null`・未設定/空/空白=null=全許可・
     不正要素 fail-loud throw・秘密非包含、`isStaffAllowed`、`reconcileJobcanForAllStaff` 入口で `not_allowlisted` 隔離）。
   - slack-check を GET → POST body 化（email を URL から外す）。
   - `JOBCAN_APPLY_ENABLED` 強制 dry-run は `resolveDryRun` で実装済み（2-7）。
   - **運用注意（[operations.md](./operations.md) へ反映）:** allowlist はキルスイッチではない。空にしても全許可になる。
     反映を止める唯一のスイッチは `JOBCAN_APPLY_ENABLED` を外すこと。
-  - staffCode 正規表現の統一（`^[A-Z]\d{4}$`）: 名簿・allowlist・共有判定・UI は大文字限定で確定。パーサ側も同書式へ統一する。
+  - staffCode 正規表現の統一（`^[A-Z]\d{4}$`）: 名簿・allowlist・共有判定・UI は大文字限定で確定。パーサ側も `^[A-Z]\d{4}$` に統一済み。
 
 ---
 
@@ -112,7 +112,7 @@
 
 - ブランチ `feature/jobcan-calendar-sync` は `main` 比で先行。
   統合はオーナーが **squash merge** で行う（WIP コミットを1本にまとめる想定）。
-- **現状:** Phase 1〜2-9 が全クローズ（全ステップ 設計 → 実装 → スネイプ →（重要変更は）ムーディを通過、415 テスト green）。
+- **現状:** Phase 1〜2-9 が全クローズ（全ステップ 設計 → 実装 → スネイプ →（重要変更は）ムーディを通過、419 テスト green）。
   機能は「動く単位」（名簿登録 UI + 取込 UI + apply）に到達。
 - **残り:** ① 実 env 下の実データ E2E（社長環境／デプロイ時、[operations.md](./operations.md) 6）
   ② 1本の PR（オーナー squash merge・M4 運用条件 = Vercel Deployment Protection 実証／`JOBCAN_APPLY_ENABLED` 既定 OFF）。
@@ -126,8 +126,6 @@
 - `JsonFileStaffDirectory.read()` の値レベル型検査、email の制御文字（NUL 等）通過は別タスク候補。
   calendarId 利用側での再検証が望ましい（[design.md](./design.md) 5 未決事項）。
 - 論点1 の email 統一の最終形（OAuth コールバックで email 保存し Slack 橋渡しを外す）は未決。
-- staffCode 正規表現の完全統一（パーサ側 `parsers/jobcan-sheet.ts` / `logic/jobcan-filename.ts` を `^[A-Z]\d{4}$` へ）は
-  統一方針として確定・反映中（[design.md](./design.md) 「staffCode 書式の統一方針」）。
 - infra 依存の申し送り（レート制限・CSRF・body 上限は Vercel 層に依存）は [operations.md](./operations.md) 3.3。
 
 ---
@@ -137,4 +135,3 @@
 - [requirements.md](./requirements.md) — 目的・利用者・安全要件（WHAT / WHY）
 - [design.md](./design.md) — アーキテクチャ・設計判断の記録（HOW）
 - [operations.md](./operations.md) — デプロイ・運用手順（環境変数・安全設計・運用注意）
-</content>
