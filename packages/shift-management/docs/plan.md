@@ -69,26 +69,42 @@
   - **未結線**（NeonStaffDirectory はまだ呼ばれていない。2-6/2-7 で結線）。
 
 - [x] **2-6 token の email 解決（Slack 橋渡し）**
-  実装完了・スネイプ検証中。
+  完了・検証済み（後続の 2-7 フル検証で同時に回収。スネイプ合格 → ムーディ GO）。
   - `resolveRefreshTokenByEmail`（`server/jobcan-token-resolver.ts`）:
     `email →（lookupSlackUserIdByEmail）→ slack_user_id →（TokenStore）→ refreshToken`。
     失敗理由を構造化（`slack_not_found` / `google_not_linked`）。calendarId = email。
   - `lookupSlackUserIdByEmail` / `interpretSlackLookupResponse`（`server/slack-directory.ts`）:
     見つからない = null、呼び出し失敗 = throw。botToken はメッセージに載せない。
 
-- [ ] **2-7 `/api/jobcan/import` 結合 + 異常 warning の Slack 通知**
-  未着手。xlsx → `string[][]` 変換（**exceljs 4.4.0 をここで apps/web に導入**、[design.md](./design.md)
-  論点2）、ファイル名 staffCode ↔ シート内 staffCode の突合 throw（論点4）、
-  `reconcileJobcanForAllStaff` の呼び出し、warning の Slack 通知配線を行う。
-  下地: Slack 経路のエラー通知（`apps/web/.../slack/events/route.ts` の `notifyError`）あり。
+- [x] **2-7 `/api/jobcan/import` 結合 + 異常 warning の Slack 通知**
+  完了・フル検証通過（スネイプ差し戻し → 共有シークレット認証追加 → スネイプ合格 → ムーディ最終 GO・CRITICAL/HIGH ゼロ）。
+  - 取込オーケストレーション（`server/jobcan-import.ts` / `jobcan-reconcile-all.ts`）: 複数 xlsx をファイル単位でパース +
+    staffCode 突合 throw（論点4）、全レイヤ per-staff 隔離 + 二重防御、集約キー `${staffCode}::${sourceMonth}`、
+    エラー文言は固定（生 `err.message` 非転写）。
+  - 本番 `/api/jobcan/import`（薄い殻）: 共有シークレット認証（`verifyImportAuth`・timingSafeEqual・
+    **secret 未設定 fail-closed**）を最前段に、`validateUploadLimits`（50件/5MB/20MB）、`resolveDryRun`（M-4 二重ゲート）、
+    `sanitizeFileName`、`missingImportEnvVars`。異常・警告時のみ Slack 通知（`SLACK_JOBCAN_CHANNEL_ID`）。
+  - **exceljs 4.4.0 を apps/web に導入**（server 専用 `xlsxToRows` + `coerceCellText` でマージセル null 吸収、[design.md](./design.md) 論点2）。
+  - 実 xlsx 通し確認済み（実ファイル → xlsxToRows → parse → 13コマ → dry-run creates=13・書き込みなし）。
 
-- [ ] **2-8 `jobcan/page.tsx` UI + 名簿の手動確定登録**
-  未着手。取込 UI と、staffCode ↔ email の手動確定登録
-  （初回のみ Slack 名前 → メアドで候補提示 → 人間が確認）を実装する。
+- [x] **2-8 `jobcan/page.tsx` UI + 名簿の手動確定登録**
+  完了・フル検証通過（スネイプ差し戻し2回 → 修正 → スネイプ合格 → ムーディ GO・条件なし。ロンのブラウザ実証済み）。
+  - `/jobcan`（取込 UI・dry-run 最小プレビュー・段階的 apply 確認・「まだ変更していません」明示）と
+    `/jobcan/staff`（名簿・Slack 在籍確認・似名警告・人間が最終確定）。
+  - 画面認証 = **Vercel Deployment Protection**（infra 主ゲート・コード側画面認証なし＝社長判断）。
+  - BFF 中継 `/api/jobcan/import-ui`（同一プロセスで import を直接呼び secret 付与・`checkContentLength` 早期拒否）、
+    名簿 API `/api/staff`（GET/POST/DELETE・別 email 上書きは 409）、`/api/staff/slack-check`（POST body・`{present}` のみ）。
+  - client 安全バレル `@management/shift-management/ui`（純葉のみ・crypto/googleapis 非混入をビルドで実証）。
 
-- [ ] **2-9 書込ガード仕上げ**
-  未着手。誤爆防止5層のうち route レベルの配線を仕上げる:
-  `JOBCAN_APPLY_ENABLED` 未設定なら強制 dry-run、staffCode allowlist。
+- [x] **2-9 書込ガード仕上げ**
+  完了・クローズ（スネイプ合格 → ムーディ条件付き GO・実弾で破れず。**415 テスト green**）。
+  - staffCode allowlist 第二関門（`parseStaffAllowlist(env) → Set | null`・未設定/空/空白=null=全許可・
+    不正要素 fail-loud throw・秘密非包含、`isStaffAllowed`、`reconcileJobcanForAllStaff` 入口で `not_allowlisted` 隔離）。
+  - slack-check を GET → POST body 化（email を URL から外す）。
+  - `JOBCAN_APPLY_ENABLED` 強制 dry-run は `resolveDryRun` で実装済み（2-7）。
+  - **運用注意（[operations.md](./operations.md) へ反映）:** allowlist はキルスイッチではない。空にしても全許可になる。
+    反映を止める唯一のスイッチは `JOBCAN_APPLY_ENABLED` を外すこと。
+  - staffCode 正規表現の統一（`^[A-Z]\d{4}$`）: 名簿・allowlist・共有判定・UI は大文字限定で確定。パーサ側も同書式へ統一する。
 
 ---
 
@@ -96,17 +112,23 @@
 
 - ブランチ `feature/jobcan-calendar-sync` は `main` 比で先行。
   統合はオーナーが **squash merge** で行う（WIP コミットを1本にまとめる想定）。
-- **段取り（社長へ提示済み）:** Phase 2 の機能完成 = 最低でも 2-7 結線まで通してから
-  1本の PR にするのが綺麗。**PR 判断は保留中。**
+- **現状:** Phase 1〜2-9 が全クローズ（全ステップ 設計 → 実装 → スネイプ →（重要変更は）ムーディを通過、415 テスト green）。
+  機能は「動く単位」（名簿登録 UI + 取込 UI + apply）に到達。
+- **残り:** ① 実 env 下の実データ E2E（社長環境／デプロイ時、[operations.md](./operations.md) 6）
+  ② 1本の PR（オーナー squash merge・M4 運用条件 = Vercel Deployment Protection 実証／`JOBCAN_APPLY_ENABLED` 既定 OFF）。
 
 ---
 
 ## 既知の残課題・申し送り
 
-- **実データ E2E 未実施**（[requirements.md](./requirements.md) 7 参照）。2-7/2-8 結線後に必要。
+- **実データ E2E 未実施**（[requirements.md](./requirements.md) 7 / [operations.md](./operations.md) 6 参照）。
+  実 `DATABASE_URL` / `SLACK_BOT_TOKEN` / `GOOGLE_*` / `JOBCAN_IMPORT_SECRET` を入れた環境での通し検証がデプロイ時に必要。
 - `JsonFileStaffDirectory.read()` の値レベル型検査、email の制御文字（NUL 等）通過は別タスク候補。
   calendarId 利用側での再検証が望ましい（[design.md](./design.md) 5 未決事項）。
 - 論点1 の email 統一の最終形（OAuth コールバックで email 保存し Slack 橋渡しを外す）は未決。
+- staffCode 正規表現の完全統一（パーサ側 `parsers/jobcan-sheet.ts` / `logic/jobcan-filename.ts` を `^[A-Z]\d{4}$` へ）は
+  統一方針として確定・反映中（[design.md](./design.md) 「staffCode 書式の統一方針」）。
+- infra 依存の申し送り（レート制限・CSRF・body 上限は Vercel 層に依存）は [operations.md](./operations.md) 3.3。
 
 ---
 
@@ -114,4 +136,5 @@
 
 - [requirements.md](./requirements.md) — 目的・利用者・安全要件（WHAT / WHY）
 - [design.md](./design.md) — アーキテクチャ・設計判断の記録（HOW）
+- [operations.md](./operations.md) — デプロイ・運用手順（環境変数・安全設計・運用注意）
 </content>

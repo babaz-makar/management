@@ -340,6 +340,28 @@ describe("parseJobcanSheet: identity 抽出", () => {
     expect(() => parseJobcanSheet({ rows })).toThrow();
   });
 
+  it("小文字始まりコード(a0187)は書式外として throw(大文字前提の fail-loud。silent に別人へ行かせない)", () => {
+    const identity = ["試 太郎", "", "a0187", "", "TEST DIV->Test TM->テスト", "", ""];
+    const rows = makeRows(
+      [["8/1(土)", "", "", "", "", "9:00", "18:00"]],
+      MONTH_HEADER,
+      identity,
+    );
+    expect(() => parseJobcanSheet({ rows })).toThrow();
+  });
+
+  it("大文字始まりコード(A0187)は通る(統一先=大文字のみ許可の正常系)", () => {
+    const identity = ["試 太郎", "", "A0187", "", "TEST DIV->Test TM->テスト", "", ""];
+    const rows = makeRows(
+      [["8/1(土)", "", "", "", "", "9:00", "18:00"]],
+      MONTH_HEADER,
+      identity,
+    );
+    const entries = parseJobcanSheet({ rows });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].staffCode).toBe("A0187");
+  });
+
   // --- 残穴B: 身元行の型崩れ耐性(非文字列セルでクラッシュしない) ---
 
   it("型崩れ: staffCode セルが数値(99999)でも TypeError にならず書式不一致で throw", () => {

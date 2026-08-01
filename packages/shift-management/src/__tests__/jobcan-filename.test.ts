@@ -55,6 +55,18 @@ describe("parseJobcanFileName: staffCode の抽出と書式検証", () => {
     expect(result.staffCodeInName).toBeUndefined();
   });
 
+  it("括弧内が小文字始まり(a0187)なら書式外で undefined(大文字前提。別人紐付けを誘発しないよう不採用)", () => {
+    const result = parseJobcanFileName("馬場優蔵(a0187) 2026年08月度.xlsx");
+    expect(result.staffCodeInName).toBeUndefined();
+    expect(result.year).toBe(2026);
+    expect(result.month).toBe(8);
+  });
+
+  it("括弧内が大文字始まり(A0187)なら従来どおり採用する(統一先=大文字のみ許可の正常系)", () => {
+    const result = parseJobcanFileName("馬場優蔵(A0187) 2026年08月度.xlsx");
+    expect(result.staffCodeInName).toBe("A0187");
+  });
+
   it("複数括弧でも書式に合致する中身をstaffCodeに採る(田中(株)(A0187))", () => {
     const result = parseJobcanFileName("田中(株)(A0187) 2026年08月度.xlsx");
     expect(result).toEqual({ year: 2026, month: 8, staffCodeInName: "A0187" });

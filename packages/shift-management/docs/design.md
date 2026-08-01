@@ -122,10 +122,10 @@ xlsx アップロード（複数）
   - **4.4.0 にピン留め**。
   - サーバー（route handler）専用 import。
   - 本 design.md に追記（本項）。
-- **現状の実装（事実）:** exceljs は **まだ apps/web に導入されていない**
-  （`apps/web/package.json` に依存が無い）。xlsx → `string[][]` 変換を行う
-  `/api/jobcan/import` の実装（Step 2-7）で導入予定。パーサー `parseJobcanSheet` は
-  ライブラリ非依存の `string[][]` 入力で既に完成している。
+- **現状の実装（事実）:** exceljs 4.4.0 を **apps/web に導入済み**（Step 2-7）。
+  `apps/web/lib/jobcan-xlsx.ts` の `xlsxToRows` が server 専用で xlsx → `string[][]` 変換を行う
+  （クライアント非混入を build で確認）。パーサー `parseJobcanSheet` はライブラリ非依存の
+  `string[][]` 入力で完成しており、exceljs には触れない。
 
 ### 論点3 — 深夜跨ぎは存在しない前提、`end <= start` は異常凍結
 
@@ -141,10 +141,9 @@ xlsx アップロード（複数）
 - **確定方針:** ファイル名の括弧内 staffCode と xlsx 4行目セルの staffCode が
   不一致なら **throw して当該ファイルの取込を中止**する（他ファイルは継続）。
 - **理由:** 不一致 = ファイル取り違え／リネームミス = 別人カレンダーへの書込事故の兆候。
-- **現状の実装（事実）:** 部品は揃っている
-  （`parseJobcanFileName` が `staffCodeInName` を返し、`parseJobcanSheet` が
-  シート内 staffCode を返す）。両者を突合して throw する結線は
-  `/api/jobcan/import`（Step 2-7）で行う。
+- **現状の実装（事実）:** 結線済み（Step 2-7）。`parseJobcanFileName` が `staffCodeInName` を返し、
+  `parseJobcanSheet` がシート内 staffCode を返す。取込オーケストレーション（`jobcan-import.ts`）が
+  両者を突合し、不一致ファイルを throw で当該ファイルのみ取込中止（他ファイルは継続）にする。
 
 ### 論点5 — managedBy に "jobcan-sync" を追加、削除は自タグ限定
 
@@ -178,6 +177,75 @@ xlsx アップロード（複数）
   - 呼び出し側 `reconcileJobcanForAllStaff` はさらに
     `email_not_registered`（名簿未登録）/ `resolve_error`（Slack API 障害等の例外隔離）を加える。
 - 秘密情報（botToken / refreshToken）はエラーメッセージ・失敗結果に載せない。
+- **実装（事実）:** `resolveRefreshTokenByEmail` / `lookupSlackUserIdByEmail` /
+  `interpretSlackLookupResponse` を実装済み。`users_not_found` のみ null、
+  `invalid_auth` / `ratelimited` 等は throw（「見つからない」と「呼べなかった」を混同させない）。
+  複数人版 `reconcileJobcanForAllStaff`（`jobcan-reconcile-all.ts`）が一人の失敗を他人へ波及させないよう隔離する。
+
+### Step 2-7 — 取込オーケストレーション + `/api` ルート + 共有シークレット認証 + exceljs 導入
+
+- **取込オーケストレーション（`jobcan-import.ts` / `jobcan-reconcile-all.ts`・packages・純ロジック）:**
+  複数 xlsx を行列化済み rows で受け取り（exceljs 非依存）、ファイル単位でパース + staffCode 突合（論点4）を行う。
+  隔離を全レイヤで対称化する（parse / ファイル名突合＝ファイル単位、名簿 get＝`directory_error`、
+  トークン解決＝`resolve_error`、reconcile 本体＝`reconcile_error` を per-staff）。集約は
+  `${staffCode}::${sourceMonth}`（同一人物の複数月まとめを許容・別人別月の混入はゼロ）。
+  1入力の失敗で全バッチが全損しない二重防御を持つ。`reconcileError` / `warning` / `directory_error` /
+  `reconcile_error` は **固定文言**（生 `err.message` を転写しない＝将来の DB 実装で接続文字列が漏れる芽を断つ）。
+  サマリの件数フィールドは `staffMonthCount`（人×月件数）。
+- **本番 `/api/jobcan/import`（`apps/web`・route handler）:** POST・既定 dry-run の薄い殻。
+  - **共有シークレット認証（`verifyImportAuth`）を全経路の最前段に置く**（dry-run でも必須）。
+    Bearer `JOBCAN_IMPORT_SECRET` を `crypto.timingSafeEqual`（定数時間比較・バイト長を先に判定）で照合。
+    **secret 未設定は fail-closed で全拒否**（500 server misconfigured）、不一致は 401。
+  - `validateUploadLimits`（50件 / 1ファイル 5MB / 合計 20MB）を arrayBuffer 展開の**前**に file.size で判定（DoS 抑止）。
+  - `resolveDryRun`（M-4 二重ゲート）で `JOBCAN_APPLY_ENABLED`（`"true"`/`"1"`）× apply が揃った時だけ本反映。
+    それ以外（undefined・未知値・型違い）は必ず dry-run へ倒す（フェイルオープンしない）。
+  - `missingImportEnvVars` で必須 env 欠落を名前だけ返す（値＝秘密は返さない）。
+  - `sanitizeFileName` で改行・制御文字を除去し長さ制限（Slack サマリの偽行注入・偽装を封じる）。
+  - `xlsxToRows`（`apps/web/lib/jobcan-xlsx.ts`）で xlsx→`string[][]` 変換。`coerceCellText` の縫い目で
+    マージセル時に exceljs `cell.text` が null 参照で throw する既知問題を吸収する。
+- **exceljs 導入（論点2の実行）:** exceljs **4.4.0** を `apps/web/package.json` のみに追加（server 専用 import・
+  クライアント非混入を build で確認）。規約例外の条件（4.4.0 ピン留め・apps/web 限定・design 追記）を満たす。
+
+### Step 2-8 — 管理画面 + BFF 中継 + 名簿 API
+
+- **画面（`apps/web/app/jobcan/`）:** `/jobcan`（取込 UI・dry-run 最小プレビュー・段階的 apply 確認・
+  「まだ変更していません」明示）と `/jobcan/staff`（名簿・Slack 在籍確認・似名警告）。text 描画のみ
+  （`dangerouslySetInnerHTML` は使わない）。OS ダークモードでも `color-scheme: light` 固定で可読。
+  apply ボタンは dry-run 成功後（`phase === "reviewed"`）のみ描画し、ファイル差し替えで計画を破棄する
+  （古い計画で apply させない）。apply 可否はサーバーの `result.dryRun` で駆動する。
+- **画面認証 = Vercel Deployment Protection（infra 主ゲート・コード側画面認証なし＝社長判断）。**
+- **BFF 中継（`/api/jobcan/import-ui`）:** ブラウザは secret を持てないため、中継が **同一プロセス内で
+  import ルートの POST を直接呼び**（二重 fetch・自オリジン絶対 URL 推定を回避）、サーバー内で Authorization を付与する。
+  `checkContentLength` で arrayBuffer 先読みの前に早期サイズ拒否する（認証通過後のメモリ枯渇 DoS 抑止）。
+  認証・上限・dry-run ゲートの単一の権威は import ルートに残し、殻ではロジックを再実装しない。
+- **名簿 API:** `/api/staff`（GET list / POST set / DELETE。別 email での上書きは 409）、
+  `/api/staff/slack-check`（POST body で email を受け `{ present }` のみ返す＝slack_user_id は返さない。
+  lookup が throw したら 502 で「確認できなかった」を present:false と誤認させない）。
+  純ロジック `describeImportReason`（reason→日本語）/ `findSimilarStaffNames`（似名警告）/ `checkContentLength`。
+- **PII 前提:** これらのレスポンスは Deployment Protection 下の管理画面向け。warnings 等が staff email を含み得るが、
+  保護（infra 層）が主ゲートである前提で許容する。公開エンドポイント化・認証方式変更の際は PII マスクを再検討する。
+
+### Step 2-9 — staffCode allowlist（第二関門）+ slack-check の POST 化
+
+- **allowlist（`jobcan-import-safeguards.ts`）:** `parseStaffAllowlist(env) → Set<string> | null`。
+  未設定・空・空白のみは **null（制限なし＝名簿全員許可）**。カンマ／空白区切りで分割し、各要素を
+  `^[A-Z]\d{4}$` で検証、1つでも不正なら **throw（fail-loud）**。生 env 値（秘密相当）は例外に載せない。
+  `isStaffAllowed` は null なら常に許可。`reconcileJobcanForAllStaff` の入口で `not_allowlisted` として隔離する。
+  **位置づけ:** 名簿（第一関門・`email_not_registered` skip）に足す **env 絞り込みの第二関門**（社長判断）。
+  allowlist は減算専用で、既存ガード（二重ゲート・削除の自タグ限定・per-staff 隔離・取り違え検出）は不変。
+  - **重要な運用注意:** allowlist はキルスイッチではない。**空にしても全拒否でなく全許可** になる。
+    反映を止める唯一のスイッチは `JOBCAN_APPLY_ENABLED` を外すこと（[operations.md](./operations.md) 3.1）。
+    連続区切り（`A0187,,B0002`）は throw せず畳む（安全側）。
+- **slack-check の POST 化:** email を URL クエリから外し JSON body で受ける（アクセスログに PII を残さない）。
+
+### staffCode 書式の統一方針（`^[A-Z]\d{4}$`）
+
+- **確定方針:** staffCode の正規表現は **`^[A-Z]\d{4}$`（大文字英字1 + 数字4桁）に統一する。** 小文字は弾く（社長判断・論点2-5）。
+- **理由:** 名簿（`staff-directory.ts`）・allowlist・共有判定（`staff-code.ts`）・UI バリデーションは既に大文字限定。
+  一方でパーサ（`parsers/jobcan-sheet.ts` / `logic/jobcan-filename.ts`）は当初 `^[A-Za-z]\d{4}$`（小文字許容）で、
+  `a0187` がパースは通るのに名簿 get で throw する非対称があった。書式を1つに揃えて事故面を無くす。
+- **実装（事実）:** 名簿・allowlist・`staff-code.ts` は `^[A-Z]\d{4}$` で確定済み。パーサ側も同じ大文字限定へ統一する
+  （その前提で本書・[operations.md](./operations.md) を記述する）。実データは大文字（A0187）で来るため実害には当たっていない。
 
 ---
 
@@ -186,10 +254,13 @@ xlsx アップロード（複数）
 ### 4.1 誤爆防止5層（[requirements.md](./requirements.md) 4.3 の実装方針）
 
 1. 既定 dry-run（`JobcanReconcileOptions.dryRun`）。
-2. `JOBCAN_APPLY_ENABLED` 未設定なら強制 dry-run（Step 2-9 で route に配線）。
-3. staffCode allowlist（Step 2-9）。
+2. `JOBCAN_APPLY_ENABLED` 未設定なら強制 dry-run（`resolveDryRun` の二重ゲート・route に配線済み）。
+3. staffCode allowlist（第一関門＝名簿 `email_not_registered` skip、第二関門＝env `parseStaffAllowlist` / `isStaffAllowed`。実装済み）。
 4. 書き込み関数は dry-run 分岐の内側のみ（`runDay` は dryRun 時に `executeDayPlan` を呼ばない）。
 5. 削除は自タグ限定（`planJobcanDayUpsert` の不変条件 + `executeJobcanDayPlan` の再照合）。
+
+> **運用注意:** allowlist（層3の第二関門）は空にすると全拒否でなく **全許可** になる。反映を止める唯一のスイッチは
+> `JOBCAN_APPLY_ENABLED` を外すこと（層2）。詳細は [operations.md](./operations.md) 3.1。
 
 ### 4.2 多層防御・TOCTOU
 
@@ -230,4 +301,5 @@ xlsx アップロード（複数）
 
 - [requirements.md](./requirements.md) — 目的・利用者・安全要件（WHAT / WHY）
 - [plan.md](./plan.md) — ステップ一覧と進行状況（WHEN / STEPS）
+- [operations.md](./operations.md) — デプロイ・運用手順（環境変数・安全設計・運用注意）
 </content>
