@@ -111,6 +111,10 @@ function buildNewEvent(
  *   4. 0件 or 複数件なら削除しない（新予定だけ作り、手動削除を促す警告を出す）
  *   5. 変更後の予定を作成する（shiftId付き）
  *
+ * 冪等性:
+ *   変更後と同じ予定が既にあれば作成はスキップするが、削除は行う。
+ *   （前回が作成だけ成功した場合に古い予定を取り残さないため）
+ *
  * kind ごとの扱い:
  *   - "modify": before で削除候補を探し、after を作成
  *   - "add":    削除は探さず after を作成のみ
@@ -124,6 +128,10 @@ export function planCalendarUpsert(
   existing: ExistingEvent[],
 ): CalendarPlan {
   const warnings: string[] = [];
+
+  // 「変更前が見つからない」は、既に反映済み（再報告）なら正常系なので
+  // 最後まで警告するか決めない。フラグで持ち越す。
+  let beforeMissing = false;
 
   // --- 削除候補の決定（cancel/modify のみ。add は探さない） ---
   const deleteEventIds: string[] = [];
@@ -140,9 +148,7 @@ export function planCalendarUpsert(
       deleteEventIds.push(bySlot[0].id);
     } else if (bySlot.length === 0) {
       if (change.kind !== "cancel") {
-        warnings.push(
-          `変更前の予定（${change.before.date} ${change.before.startTime}-${change.before.endTime}）が見つかりませんでした。手動で削除をお願いします。`,
-        );
+        beforeMissing = true;
       }
     } else {
       warnings.push(
@@ -156,21 +162,32 @@ export function planCalendarUpsert(
   if (change.kind === "cancel") {
     // deleteEventIds が空 & 警告なし → すでに取り消し済み（冪等）
   } else if (change.after) {
-    create = buildNewEvent(change.slackUserId, change.after, change.reason);
+    const spec = buildNewEvent(change.slackUserId, change.after, change.reason);
 
-    // 冪等性チェック: 変更後と同じイベントがすでに存在すればスキップ
+    // 冪等性チェック: 変更後と同じイベントがすでに存在すれば作成はスキップ
     const alreadyExists = existing.some(
       (e) =>
-        e.shiftId === create!.shiftId &&
-        e.startTime === create!.startTime &&
-        e.endTime === create!.endTime,
+        e.shiftId === spec.shiftId &&
+        e.startTime === spec.startTime &&
+        e.endTime === spec.endTime,
     );
     if (alreadyExists) {
-      return { deleteEventIds: [], create: null, warnings: [] };
+      // 作成はしないが、**削除は捨てない**。
+      // 前回の実行が作成だけ成功して古い予定が残っている場合、ここで消さないと
+      // 「完了と返信されたのに元の予定が変わらない」状態になる。
+      // 変更前が見つからないのは反映済みを意味するので、その警告は出さない。
+      return { deleteEventIds, create: null, warnings };
     }
+    create = spec;
   } else {
     warnings.push(
       "変更後のシフト時間を特定できなかったため、予定を作成できませんでした。",
+    );
+  }
+
+  if (beforeMissing && change.before) {
+    warnings.push(
+      `変更前の予定（${change.before.date} ${change.before.startTime}-${change.before.endTime}）が見つかりませんでした。手動で削除をお願いします。`,
     );
   }
 

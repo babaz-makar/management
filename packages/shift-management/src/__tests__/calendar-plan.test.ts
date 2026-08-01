@@ -163,6 +163,23 @@ describe("planCalendarUpsert: 冪等性（重複防止）", () => {
     expect(plan.warnings).toEqual([]);
   });
 
+  it("変更後の予定が既にあっても、変更前の予定が残っていれば削除する", () => {
+    // 前回の実行が「作成だけ成功」した状態。ここで消さないと元の予定が残り続ける
+    const existing = [
+      evt({
+        id: "newAlreadyCreated",
+        shiftId: "U012ABCDEF:2026-06-30",
+        startTime: "12:00",
+        endTime: "18:00",
+      }),
+      evt({ id: "oldLeftOver" }), // 6/30 16:00-22:00
+    ];
+    const plan = planCalendarUpsert(MODIFY, existing);
+    expect(plan.deleteEventIds).toEqual(["oldLeftOver"]);
+    expect(plan.create).toBeNull(); // 二重作成はしない
+    expect(plan.warnings).toEqual([]);
+  });
+
   it("add: 同じ shiftId+時間帯のイベントが既にあればスキップ", () => {
     const add: ShiftChange = {
       ...MODIFY,
