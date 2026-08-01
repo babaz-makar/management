@@ -31,8 +31,22 @@ export const maxDuration = 60;
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
   if (!remindEnv.cronSecret) {
+    // 設定漏れの切り分け用。CRON_SECRET が無い＝そもそも自動送信が動かない状態でしか
+    // 返らないので、値は一切出さず「設定されているか」だけを返す
     return NextResponse.json(
-      { error: "CRON_SECRET が未設定です" },
+      {
+        error: "CRON_SECRET が未設定です",
+        configured: {
+          CRON_SECRET: false,
+          SLACK_REMIND_BOT_TOKEN: Boolean(remindEnv.botToken),
+          SLACK_REMIND_SIGNING_SECRET: Boolean(remindEnv.signingSecret),
+          DATABASE_URL: Boolean(remindEnv.databaseUrl),
+          APP_URL: Boolean(remindEnv.appUrl),
+        },
+        // 変数名のtypo（全角・余分な空白等）を切り分けるため、名前だけ晒す
+        cronVarNames: Object.keys(process.env).filter((k) => /CRON/i.test(k)),
+        hint: "Vercelの環境変数に値が入っているか（空文字でないか）を確認し、再デプロイしてください",
+      },
       { status: 500 },
     );
   }
