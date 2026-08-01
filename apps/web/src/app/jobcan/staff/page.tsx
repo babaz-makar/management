@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { StaffDirectoryEntry } from "@management/shift-management";
-import { IOS } from "../_lib/tokens";
 import {
+  IosButton,
   IosCallout,
+  IosIcon,
   IosLoading,
+  JobcanHeader,
   PageHeader,
   Screen,
 } from "../_components/ios";
@@ -39,6 +41,8 @@ export default function StaffDirectoryPage() {
   const [initialCode, setInitialCode] = useState("");
   const [pending, setPending] = useState<Pending>(null);
   const [busy, setBusy] = useState(false);
+  // 登録フォームの開閉(表示のみ)。既定は畳む。?code= 流入時のみ自動展開。
+  const [showForm, setShowForm] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -56,7 +60,11 @@ export default function StaffDirectoryPage() {
     // 取込画面(email 未登録 warning)から ?code= で渡された staffCode を初期表示。
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code") ?? "";
-    if (isValidStaffCode(code)) setInitialCode(code);
+    if (isValidStaffCode(code)) {
+      setInitialCode(code);
+      // 取込→名簿の中核導線: ?code= 流入時は登録フォームを開いておく(従来どおり)。
+      setShowForm(true);
+    }
     void reload();
   }, [reload]);
 
@@ -109,54 +117,65 @@ export default function StaffDirectoryPage() {
     initialCode.length > 0 && entries.some((e) => e.staffCode === initialCode);
 
   return (
-    <Screen>
-      <PageHeader
-        title="スタッフ名簿(staffCode ⇄ email)"
-        description={
-          <>
-            取込で email を引き当てるための対応表です。
-            <a
-              href="/jobcan"
-              style={{ marginLeft: ".75rem", color: IOS.color.blue, textDecoration: "none" }}
-            >
-              取込画面へ戻る
-            </a>
-          </>
-        }
-      />
-
-      {notice && (
-        <IosCallout tone="success" style={{ marginBottom: 16 }}>
-          {notice}
-        </IosCallout>
-      )}
-      {error && (
-        <IosCallout tone="danger" style={{ marginBottom: 16 }}>
-          {error}
-        </IosCallout>
-      )}
-
-      <UnregisteredList staffCode={initialCode} alreadyRegistered={alreadyRegistered} />
-
-      <StaffConfirmCard
-        entries={entries}
-        initialStaffCode={initialCode}
-        busy={busy}
-        onSubmit={(staffCode, email) => void submitUpsert(staffCode, email, false)}
-      />
-
-      {loading ? (
-        <IosLoading label="名簿を読み込み中…" />
-      ) : (
-        <StaffTable
-          entries={entries}
-          query={query}
-          onQueryChange={setQuery}
-          onDelete={requestDelete}
+    <>
+      <JobcanHeader />
+      <Screen>
+        <PageHeader
+          title="スタッフ名簿"
+          description="社員コードとメールの対応表です。"
         />
-      )}
 
-      {pending?.kind === "delete" && (
+        {notice && (
+          <IosCallout tone="success" style={{ marginBottom: 16 }}>
+            {notice}
+          </IosCallout>
+        )}
+        {error && (
+          <IosCallout tone="danger" style={{ marginBottom: 16 }}>
+            {error}
+          </IosCallout>
+        )}
+
+        <UnregisteredList staffCode={initialCode} alreadyRegistered={alreadyRegistered} />
+
+        {/* 登録は「＋追加」を押した時だけ開く(既定は畳む。?code= 流入時は自動展開)。 */}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          <IosButton
+            variant={showForm ? "plain" : "tinted"}
+            onClick={() => setShowForm((v) => !v)}
+          >
+            {showForm ? (
+              "閉じる"
+            ) : (
+              <>
+                <IosIcon name="plus" size={16} />
+                追加
+              </>
+            )}
+          </IosButton>
+        </div>
+
+        {showForm && (
+          <StaffConfirmCard
+            entries={entries}
+            initialStaffCode={initialCode}
+            busy={busy}
+            onSubmit={(staffCode, email) => void submitUpsert(staffCode, email, false)}
+          />
+        )}
+
+        {loading ? (
+          <IosLoading label="名簿を読み込み中…" />
+        ) : (
+          <StaffTable
+            entries={entries}
+            query={query}
+            onQueryChange={setQuery}
+            onDelete={requestDelete}
+          />
+        )}
+
+        {pending?.kind === "delete" && (
         <ConfirmDialog
           title="削除の確認"
           message={`${pending.staffCode} を名簿から削除します。よろしいですか?`}
@@ -179,6 +198,7 @@ export default function StaffDirectoryPage() {
           onCancel={() => setPending(null)}
         />
       )}
-    </Screen>
+      </Screen>
+    </>
   );
 }

@@ -56,6 +56,15 @@ export type {
   StaffCountFetch,
 } from "./logic/jobcan-home-fetch";
 
+// jobcan 3 画面の表示用語・タブ定義・ステッパー写像(純データ/純関数・依存ゼロ)。
+export {
+  JOBCAN_TABS,
+  JOBCAN_UI_TERMS,
+  importStepLabel,
+  importPhaseToStep,
+} from "./logic/jobcan-ui-terms";
+export type { JobcanTab } from "./logic/jobcan-ui-terms";
+
 // スタッフ名簿 登録フォームの同意ゲート判定(純関数・依存ゼロ)。
 export {
   consentAfterInputChange,

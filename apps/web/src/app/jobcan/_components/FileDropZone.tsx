@@ -1,9 +1,7 @@
 "use client";
 
 import { IOS, iosButtonColors, iosType } from "../_lib/tokens";
-import { IosCallout } from "./ios";
-import { IosCard, IosEmpty } from "./ios";
-import { GroupedList, ListRow } from "./ios";
+import { GroupedList, IosCallout, IosCard, IosEmpty, IosIcon, ListRow } from "./ios";
 import { formatBytes, totalSize, type ClientLimitWarning } from "../_lib/import-client";
 
 interface FileDropZoneProps {
@@ -24,26 +22,29 @@ export function FileDropZone({
   onRemove,
   onClear,
 }: FileDropZoneProps) {
-  // tinted 青のラベルで素の file input を隠し、機能(複数選択・再選択)は据え置く。
-  const tinted = iosButtonColors("tinted", disabled ? "disabled" : "default");
+  // filled 濃青の主ボタンに格上げ(素の file input はラベルで隠し、複数選択・再選択は据え置き)。
+  const filled = iosButtonColors("filled", disabled ? "disabled" : "default");
 
   return (
     <IosCard style={{ marginBottom: 24 }} padding={16}>
       <label
         style={{
-          display: "inline-flex",
+          ...iosType("headline"),
+          display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          height: IOS.metrics.controlHeight,
+          gap: 8,
+          height: IOS.metrics.buttonPrimaryHeight,
+          width: "100%",
           padding: "0 18px",
           borderRadius: IOS.metrics.radiusCard,
-          background: tinted.background,
-          color: tinted.color,
+          background: filled.background,
+          color: filled.color,
           cursor: disabled ? "not-allowed" : "pointer",
-          ...iosType("headline"),
         }}
       >
-        ジョブカンの xlsx を選択(複数可)
+        <IosIcon name="file" size={18} />
+        ジョブカンのファイルを選ぶ(複数OK)
         <input
           type="file"
           multiple
@@ -72,9 +73,9 @@ export function FileDropZone({
       {files.length === 0 ? (
         <div style={{ marginTop: 8 }}>
           <IosEmpty
-            icon={<span>&#9633;</span>}
-            title="ファイル未選択"
-            description="まだファイルが選択されていません。"
+            icon={<IosIcon name="tray" size={38} />}
+            title="まだファイルを選んでいません"
+            description="ジョブカンからダウンロードした xlsx を選んでください。"
           />
         </div>
       ) : (

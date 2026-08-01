@@ -58,3 +58,44 @@ body {
     padding-right: 20px;
   }
 }
+
+/* 取込ステッパー: 狭い幅ではラベルを隠し番号のみ表示(崩れ防止)。 */
+@media (max-width: 560px) {
+  .jobcan-step-label {
+    display: none;
+  }
+}
+
+/* ホームの数値カード(bento): 既定 4 列、狭幅で 2 列。 */
+.jobcan-bento {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .jobcan-bento {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* 結果の大カード 3 枚(取込の確認結果)。 */
+.jobcan-result3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+/* 折りたたみ(DetailToggle): ネイティブ三角を消し、chevron を開閉で回転。 */
+.jobcan-detail > summary {
+  list-style: none;
+}
+.jobcan-detail > summary::-webkit-details-marker {
+  display: none;
+}
+.jobcan-caret {
+  transition: transform 0.2s ease;
+}
+.jobcan-detail[open] > summary .jobcan-caret {
+  transform: rotate(90deg);
+}
