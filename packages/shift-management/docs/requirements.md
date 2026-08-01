@@ -123,5 +123,6 @@
 
 - [design.md](./design.md) — アーキテクチャ・データフロー・設計判断の記録（HOW）
 - [plan.md](./plan.md) — ステップ一覧と進行状況（WHEN / STEPS）
+- [operations.md](./operations.md) — デプロイ・運用手順（環境変数・安全設計・運用注意）
 </content>
 </invoke>
