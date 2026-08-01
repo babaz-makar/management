@@ -245,9 +245,20 @@ xlsx アップロード（複数）
   一方でパーサ（`parsers/jobcan-sheet.ts` / `logic/jobcan-filename.ts`）は当初 `^[A-Za-z]\d{4}$`（小文字許容）で、
   `a0187` がパースは通るのに名簿 get で throw する非対称があった。書式を1つに揃えて事故面を無くす。
 - **実装（事実）:** 名簿・allowlist・`staff-code.ts` に加え、パーサ（`parsers/jobcan-sheet.ts` / `logic/jobcan-filename.ts`）も
-  `^[A-Z]\d{4}$` に統一済み（4者すべて統一完了・419 テスト green・`a0187` が false になることを検証済み）。
-  小文字コードは sheet が throw で当該ファイル取込中止、filename は staffCodeInName を不採用（undefined）とする。
+  `^[A-Z]\d{4}$` に統一済み（4者すべて統一完了・422 テスト green・`a0187` が false になることを検証済み）。
   実データは大文字（A0187）で来るため実害には当たっていない。
+
+- **filename 層は「取り違えトリップワイヤ」を温存する（3分類）:**
+  ファイル名の括弧内トークンを `extractStaffCodeInName` が次の3通りに分類する。
+  1. **正規の大文字 staffCode（`^[A-Z]\d{4}$`）→ 採用**（`staffCodeInName` として返し、論点4の突合キーにする）。
+  2. **小文字が混入した staffCode 様トークン（例 `a0187` / `A018b`）→ `filename_parse_error` で隔離（throw）。**
+     `undefined`（＝staffCode 情報なし）に倒さない。理由: 小文字混入は「大文字の正規コードを打ち間違えた／リネームし損ねた」
+     取り違えの兆候であり、黙って突合をスキップすると別人書込の兆候を握りつぶす。
+     `undefined` に倒すと突合が無効化されるため、あえて **fail-loud で当該ファイルの取込を止める**。
+  3. **そもそも staffCode の形をしていないトークン（例 一般の括弧書き）→ `undefined`**（staffCode 情報なしとして扱い、突合しない）。
+  この3分類により、「取り違えの兆候（2）」と「単に staffCode を含まないファイル名（3）」を区別する。
+  なお書込先を最終的に支配するのはシート内 staffCode（`^[A-Z]\d{4}$` が 100% 支配）であり、
+  `staffCodeInName` は突合専用。小文字混入で throw させても別人書込の新規経路は生まれない（純粋な安全増強）。
 
 ---
 
