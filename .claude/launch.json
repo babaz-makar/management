@@ -3,10 +3,10 @@
   "configurations": [
     {
       "name": "web-dev",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["next", "dev", "--port", "3000"],
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "web", "dev"],
       "port": 3000,
-      "cwd": "C:/Users/babaz/Downloads/Claude code/management-shift-management/apps/web"
+      "cwd": "/Users/tanakarui/Documents/AI/management"
     }
   ]
 }

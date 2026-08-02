@@ -1,0 +1,525 @@
+import { describe, expect, it } from "vitest";
+import {
+  checkContentLength,
+  coerceCellText,
+  DEFAULT_UPLOAD_LIMITS,
+  isJobcanApplyEnabled,
+  isStaffAllowed,
+  MAX_RELAY_BODY_BYTES,
+  missingImportEnvVars,
+  parseStaffAllowlist,
+  resolveDryRun,
+  sanitizeFileName,
+  validateUploadLimits,
+  verifyImportAuth,
+} from "../server/jobcan-import-safeguards";
+
+describe("sanitizeFileName: ファイル名の無害化(ムーディ申し送り① 偽行注入/サマリ偽装防止)", () => {
+  it("通常のファイル名はそのまま返す", () => {
+    expect(sanitizeFileName("山田太郎(A0187) 2026年08月度.xlsx")).toBe(
+      "山田太郎(A0187) 2026年08月度.xlsx",
+    );
+  });
+
+  it("改行(\\r\\n)を除去する(Slackサマリへの偽行注入を封じる)", () => {
+    expect(sanitizeFileName("a.xlsx\n- 偽の行")).toBe("a.xlsx- 偽の行");
+    expect(sanitizeFileName("a.xlsx\r\n偽装")).toBe("a.xlsx偽装");
+  });
+
+  it("制御文字(タブ/NUL/DEL/C1)を除去する", () => {
+    expect(sanitizeFileName("a\tb\x00c\x7fd\x9ee")).toBe("abcde");
+  });
+
+  it("前後の空白をトリムする", () => {
+    expect(sanitizeFileName("  file.xlsx  ")).toBe("file.xlsx");
+  });
+
+  it("長さを120字に制限する", () => {
+    const long = "x".repeat(200);
+    expect(sanitizeFileName(long)).toHaveLength(120);
+  });
+
+  it("除去後に空になったら固定のフォールバック名を返す", () => {
+    expect(sanitizeFileName("\n\r\t")).toBe("(不明なファイル)");
+    expect(sanitizeFileName("")).toBe("(不明なファイル)");
+  });
+});
+
+describe("resolveDryRun: 既定dry-run厳守(M-4 フェイルオープン封じ・二重ゲート)", () => {
+  it("両ゲート成立(env=true かつ apply=true)のときだけ本反映(false)", () => {
+    expect(resolveDryRun({ apply: true }, { JOBCAN_APPLY_ENABLED: "true" })).toBe(false);
+    expect(resolveDryRun({ apply: true }, { JOBCAN_APPLY_ENABLED: "1" })).toBe(false);
+  });
+
+  it("apply が厳密 true でなければ dry-run(true)", () => {
+    expect(resolveDryRun({}, { JOBCAN_APPLY_ENABLED: "true" })).toBe(true);
+    expect(resolveDryRun({ apply: false }, { JOBCAN_APPLY_ENABLED: "true" })).toBe(true);
+    // 非boolean(型を破った値)でも dry-run 側へ倒れる
+    expect(
+      resolveDryRun({ apply: "true" as unknown as boolean }, { JOBCAN_APPLY_ENABLED: "true" }),
+    ).toBe(true);
+  });
+
+  it("env が明示的な有効値でなければ dry-run(true)", () => {
+    expect(resolveDryRun({ apply: true }, {})).toBe(true);
+    expect(resolveDryRun({ apply: true }, { JOBCAN_APPLY_ENABLED: undefined })).toBe(true);
+    expect(resolveDryRun({ apply: true }, { JOBCAN_APPLY_ENABLED: "false" })).toBe(true);
+    expect(resolveDryRun({ apply: true }, { JOBCAN_APPLY_ENABLED: "yes" })).toBe(true);
+    expect(resolveDryRun({ apply: true }, { JOBCAN_APPLY_ENABLED: "TRUE" })).toBe(true);
+    expect(resolveDryRun({ apply: true }, { JOBCAN_APPLY_ENABLED: "" })).toBe(true);
+  });
+
+  it("両方欠落でも必ず dry-run(true)", () => {
+    expect(resolveDryRun({}, {})).toBe(true);
+  });
+});
+
+describe("isJobcanApplyEnabled: status API 唯一の真偽源を境界テーブルで直接固定(M-3)", () => {
+  it.each([
+    ["1", "1", true],
+    ["true", "true", true],
+    ["TRUE(大文字)", "TRUE", false],
+    ["True(混在)", "True", false],
+    ["空文字", "", false],
+    ["false", "false", false],
+    ["0", "0", false],
+    ["yes", "yes", false],
+    ["2", "2", false],
+    ["前後空白付き ' true '", " true ", false],
+  ])("JOBCAN_APPLY_ENABLED=%s → %s", (_label, value, expected) => {
+    expect(isJobcanApplyEnabled({ JOBCAN_APPLY_ENABLED: value })).toBe(expected);
+  });
+
+  it("キー未設定 / undefined は false(既定オフ)", () => {
+    expect(isJobcanApplyEnabled({})).toBe(false);
+    expect(isJobcanApplyEnabled({ JOBCAN_APPLY_ENABLED: undefined })).toBe(false);
+  });
+
+  it("resolveDryRun と env 判定を共有する(env有効かつapply=trueで本反映)", () => {
+    const env = { JOBCAN_APPLY_ENABLED: "true" };
+    expect(isJobcanApplyEnabled(env)).toBe(true);
+    expect(resolveDryRun({ apply: true }, env)).toBe(false);
+  });
+});
+
+describe("verifyImportAuth: 共有シークレットBearer認証(CRITICAL-1 匿名POST封じ・fail-closed)", () => {
+  const SECRET = "s3cr3t-shared-token-value";
+
+  it("正しいBearerトークンならok", () => {
+    expect(verifyImportAuth(`Bearer ${SECRET}`, SECRET)).toEqual({ ok: true });
+  });
+
+  it("トークン不一致はunauthorized", () => {
+    expect(verifyImportAuth("Bearer wrong-token-value-here!!", SECRET)).toEqual({
+      ok: false,
+      reason: "unauthorized",
+    });
+  });
+
+  it("authHeaderがnullならunauthorized(ヘッダ欠落)", () => {
+    expect(verifyImportAuth(null, SECRET)).toEqual({
+      ok: false,
+      reason: "unauthorized",
+    });
+  });
+
+  it('"Bearer " 前置きが無ければunauthorized', () => {
+    expect(verifyImportAuth(SECRET, SECRET)).toEqual({
+      ok: false,
+      reason: "unauthorized",
+    });
+    expect(verifyImportAuth(`Token ${SECRET}`, SECRET)).toEqual({
+      ok: false,
+      reason: "unauthorized",
+    });
+  });
+
+  it("expectedSecret未設定(undefined/空文字)はsecret_not_configured(fail-closed 全拒否)", () => {
+    expect(verifyImportAuth(`Bearer ${SECRET}`, undefined)).toEqual({
+      ok: false,
+      reason: "secret_not_configured",
+    });
+    expect(verifyImportAuth(`Bearer ${SECRET}`, "")).toEqual({
+      ok: false,
+      reason: "secret_not_configured",
+    });
+  });
+
+  it("長さ違いトークンでもtimingSafeEqualがcrashせずunauthorizedを返す", () => {
+    expect(() => verifyImportAuth("Bearer short", SECRET)).not.toThrow();
+    expect(verifyImportAuth("Bearer short", SECRET)).toEqual({
+      ok: false,
+      reason: "unauthorized",
+    });
+    expect(
+      verifyImportAuth(`Bearer ${SECRET}-and-more-tail`, SECRET),
+    ).toEqual({ ok: false, reason: "unauthorized" });
+  });
+
+  it("空Bearerトークン(Bearerのみ)はunauthorized", () => {
+    expect(verifyImportAuth("Bearer ", SECRET)).toEqual({
+      ok: false,
+      reason: "unauthorized",
+    });
+  });
+
+  it("マルチバイトでバイト長が違うがJS文字列長が同じでもcrashしない", () => {
+    // "é"(2byte) 1文字 と "a"(1byte) 1文字: JS length 同じでもバイト長違い
+    expect(() => verifyImportAuth("Bearer é", "a")).not.toThrow();
+    expect(verifyImportAuth("Bearer é", "a")).toEqual({
+      ok: false,
+      reason: "unauthorized",
+    });
+  });
+
+  it("戻り値に秘密(expectedSecret/token)を載せない", () => {
+    const result = verifyImportAuth("Bearer wrong-token-value-here!!", SECRET);
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+    expect(JSON.stringify(result)).not.toContain("wrong-token-value-here");
+  });
+});
+
+describe("validateUploadLimits: アップロード上限(HIGH-1 未認証DoS対策)", () => {
+  const limits = { maxFiles: 3, maxFileBytes: 100, maxTotalBytes: 150 };
+
+  it("上限内ならok", () => {
+    expect(
+      validateUploadLimits([{ size: 50 }, { size: 50 }], limits),
+    ).toEqual({ ok: true });
+  });
+
+  it("ファイル数超過はtoo_many_files", () => {
+    expect(
+      validateUploadLimits(
+        [{ size: 1 }, { size: 1 }, { size: 1 }, { size: 1 }],
+        limits,
+      ),
+    ).toEqual({ ok: false, reason: "too_many_files" });
+  });
+
+  it("1ファイルサイズ超過はfile_too_large", () => {
+    expect(validateUploadLimits([{ size: 101 }], limits)).toEqual({
+      ok: false,
+      reason: "file_too_large",
+    });
+  });
+
+  it("合計サイズ超過はtotal_too_large", () => {
+    expect(
+      validateUploadLimits([{ size: 80 }, { size: 80 }], limits),
+    ).toEqual({ ok: false, reason: "total_too_large" });
+  });
+
+  it("空配列はok(ファイル無しは別の400で弾く責務)", () => {
+    expect(validateUploadLimits([], limits)).toEqual({ ok: true });
+  });
+
+  it("境界値ちょうどはok(超過のみ弾く)", () => {
+    expect(
+      validateUploadLimits([{ size: 100 }, { size: 50 }], limits),
+    ).toEqual({ ok: true });
+  });
+
+  it("size が不正値(負/NaN)でも0扱いでcrashしない", () => {
+    expect(
+      validateUploadLimits(
+        [{ size: -1 }, { size: Number.NaN }],
+        limits,
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("既定の上限定数が公開されている", () => {
+    expect(DEFAULT_UPLOAD_LIMITS.maxFiles).toBe(50);
+    expect(DEFAULT_UPLOAD_LIMITS.maxFileBytes).toBe(5 * 1024 * 1024);
+    expect(DEFAULT_UPLOAD_LIMITS.maxTotalBytes).toBe(20 * 1024 * 1024);
+  });
+});
+
+describe("checkContentLength: 中継段のContent-Length早期サイズ拒否(M2 arrayBuffer先読み前のメモリ枯渇防止)", () => {
+  const MAX = 1000;
+
+  it("上限内のContent-Lengthはok", () => {
+    expect(checkContentLength("500", MAX)).toEqual({ ok: true });
+  });
+
+  it("境界値ちょうど(=maxBytes)はok(超過のみ拒否)", () => {
+    expect(checkContentLength("1000", MAX)).toEqual({ ok: true });
+  });
+
+  it("境界+1(maxBytes超過)はtoo_large", () => {
+    expect(checkContentLength("1001", MAX)).toEqual({
+      ok: false,
+      reason: "too_large",
+    });
+  });
+
+  it("巨大なContent-Length(例500MB)はtoo_large(body展開前に拒否)", () => {
+    expect(checkContentLength(String(500 * 1024 * 1024), MAX)).toEqual({
+      ok: false,
+      reason: "too_large",
+    });
+  });
+
+  it("ヘッダ欠落(null)は「不明」として通す(import側の上限に委ねる)", () => {
+    expect(checkContentLength(null, MAX)).toEqual({ ok: true });
+  });
+
+  it("非数値(abc)は「不明」として通す(誤って巨大許可には倒さない=下流の権威に委ねる)", () => {
+    expect(checkContentLength("abc", MAX)).toEqual({ ok: true });
+    expect(checkContentLength("100abc", MAX)).toEqual({ ok: true });
+    expect(checkContentLength("1e10", MAX)).toEqual({ ok: true });
+  });
+
+  it("空文字は「不明」として通す", () => {
+    expect(checkContentLength("", MAX)).toEqual({ ok: true });
+    expect(checkContentLength("   ", MAX)).toEqual({ ok: true });
+  });
+
+  it("負値(-1)は「不明」として通す(非数値扱い・巨大許可には倒さない)", () => {
+    expect(checkContentLength("-1", MAX)).toEqual({ ok: true });
+  });
+
+  it("前後の空白は許容してパースする", () => {
+    expect(checkContentLength("  500  ", MAX)).toEqual({ ok: true });
+    expect(checkContentLength("  2000  ", MAX)).toEqual({
+      ok: false,
+      reason: "too_large",
+    });
+  });
+
+  it("桁あふれ級の巨大数字列でもtoo_largeに倒す(通さない)", () => {
+    expect(
+      checkContentLength("99999999999999999999999999", MAX),
+    ).toEqual({ ok: false, reason: "too_large" });
+  });
+
+  it("中継上限定数MAX_RELAY_BODY_BYTESは合計上限(20MB)＋multipart余裕", () => {
+    expect(MAX_RELAY_BODY_BYTES).toBeGreaterThan(DEFAULT_UPLOAD_LIMITS.maxTotalBytes);
+    expect(MAX_RELAY_BODY_BYTES).toBe(20 * 1024 * 1024 + 1 * 1024 * 1024);
+  });
+});
+
+describe("missingImportEnvVars: 必須env欠落名の列挙(値=秘密は返さない)", () => {
+  const full = {
+    DATABASE_URL: "postgres://x",
+    SLACK_BOT_TOKEN: "xoxb-x",
+    GOOGLE_CLIENT_ID: "gid",
+    GOOGLE_CLIENT_SECRET: "gsecret",
+    GOOGLE_REDIRECT_URI: "https://x/cb",
+  };
+
+  it("全て揃っていれば空配列", () => {
+    expect(missingImportEnvVars(full)).toEqual([]);
+  });
+
+  it("欠落・空文字は名前だけ返す(値は返さない)", () => {
+    const result = missingImportEnvVars({
+      ...full,
+      DATABASE_URL: undefined,
+      SLACK_BOT_TOKEN: "",
+    });
+    expect(result).toContain("DATABASE_URL");
+    expect(result).toContain("SLACK_BOT_TOKEN");
+    expect(result).not.toContain("postgres://x");
+  });
+
+  it("全欠落なら5件すべて返す", () => {
+    expect(missingImportEnvVars({})).toHaveLength(5);
+  });
+});
+
+describe("coerceCellText: xlsxセルの防御的文字列化(exceljs非依存の縫い目/マージセルthrow吸収)", () => {
+  it("readText() が文字列を返せばそれを使う(正常系)", () => {
+    expect(coerceCellText(() => "hello", () => "ignored")).toBe("hello");
+  });
+
+  it("readText() が throw したら readValue() にフォールバックする(マージセル既知問題)", () => {
+    expect(
+      coerceCellText(
+        () => {
+          throw new Error("null reference (merged cell)");
+        },
+        () => "fallback",
+      ),
+    ).toBe("fallback");
+  });
+
+  it("value が null なら空文字にする", () => {
+    expect(
+      coerceCellText(
+        () => {
+          throw new Error("boom");
+        },
+        () => null,
+      ),
+    ).toBe("");
+  });
+
+  it("value が Date なら ISO 文字列にする", () => {
+    const d = new Date("2026-08-01T00:00:00.000Z");
+    expect(
+      coerceCellText(
+        () => {
+          throw new Error("boom");
+        },
+        () => d,
+      ),
+    ).toBe("2026-08-01T00:00:00.000Z");
+  });
+
+  it("value が数値なら文字列化する", () => {
+    expect(
+      coerceCellText(
+        () => {
+          throw new Error("boom");
+        },
+        () => 42,
+      ),
+    ).toBe("42");
+  });
+
+  it("readText() が非文字列(null等)を返しても value 側へフォールバックする", () => {
+    expect(
+      coerceCellText(
+        () => null as unknown as string,
+        () => "from-value",
+      ),
+    ).toBe("from-value");
+  });
+
+  it("readValue() も throw する最悪ケースでも空文字に落とす(全損させない)", () => {
+    expect(
+      coerceCellText(
+        () => {
+          throw new Error("text boom");
+        },
+        () => {
+          throw new Error("value boom");
+        },
+      ),
+    ).toBe("");
+  });
+});
+
+describe("parseStaffAllowlist: 反映許可リスト(第二関門)の env パース", () => {
+  it("未設定(undefined)は null(=制限なし=名簿全員許可)", () => {
+    expect(parseStaffAllowlist(undefined)).toBeNull();
+  });
+
+  it("空文字・空白のみは null(制限なし)", () => {
+    expect(parseStaffAllowlist("")).toBeNull();
+    expect(parseStaffAllowlist("   ")).toBeNull();
+    expect(parseStaffAllowlist("\t\n ")).toBeNull();
+  });
+
+  it("単一 staffCode を Set にする", () => {
+    const set = parseStaffAllowlist("A0187");
+    expect(set).toEqual(new Set(["A0187"]));
+  });
+
+  it("カンマ区切りの複数 staffCode を Set にする", () => {
+    const set = parseStaffAllowlist("A0187,B0002,C0003");
+    expect(set).toEqual(new Set(["A0187", "B0002", "C0003"]));
+  });
+
+  it("空白/カンマ混在・前後空白も正しく分割してトリムする", () => {
+    const set = parseStaffAllowlist("  A0187 ,B0002\tC0003 , A0004 ");
+    expect(set).toEqual(new Set(["A0187", "B0002", "C0003", "A0004"]));
+  });
+
+  it("重複要素は Set で1つに畳まれる", () => {
+    expect(parseStaffAllowlist("A0187,A0187")).toEqual(new Set(["A0187"]));
+  });
+
+  it("不正な staffCode 形式が混じると fail-loud で throw する(起動時に気づける)", () => {
+    expect(() => parseStaffAllowlist("A0187,not-a-code")).toThrow();
+    expect(() => parseStaffAllowlist("a0187")).toThrow(); // 小文字は不正
+    expect(() => parseStaffAllowlist("A018")).toThrow(); // 桁不足
+    expect(() => parseStaffAllowlist("AB0187")).toThrow(); // 英字2
+  });
+
+  it("throw する例外に env の生値(秘密)を載せない", () => {
+    try {
+      parseStaffAllowlist("SECRET_BAD_VALUE_XYZ");
+      throw new Error("should have thrown");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      expect(message).not.toContain("SECRET_BAD_VALUE_XYZ");
+    }
+  });
+
+  it("大文字は厳密(A0187 と a0187 は別・小文字は不正)", () => {
+    expect(parseStaffAllowlist("A0187")).toEqual(new Set(["A0187"]));
+    expect(() => parseStaffAllowlist("A0187,a0187")).toThrow();
+  });
+});
+
+describe("isStaffAllowed: 反映許可判定(allowlist が null なら全許可)", () => {
+  it("allowlist が null なら常に true(制限なし)", () => {
+    expect(isStaffAllowed("A0187", null)).toBe(true);
+    expect(isStaffAllowed("Z9999", null)).toBe(true);
+  });
+
+  it("Set に含まれれば true(has)", () => {
+    const set = new Set(["A0187", "B0002"]);
+    expect(isStaffAllowed("A0187", set)).toBe(true);
+    expect(isStaffAllowed("B0002", set)).toBe(true);
+  });
+
+  it("Set に含まれなければ false(not-has)", () => {
+    const set = new Set(["A0187"]);
+    expect(isStaffAllowed("B0002", set)).toBe(false);
+  });
+
+  it("空の Set は誰も許可しない(緊急停止)", () => {
+    expect(isStaffAllowed("A0187", new Set())).toBe(false);
+  });
+});
+
+// ムーディ 2-9 HIGH 補完: パーサ本体(fail-open/fail-loud の心臓部)の境界を直接突く。
+// 既存 describe と役割は同じだが、上の describe が未カバーだった桁超過/英字なし/
+// 改行・タブ単独区切り/連続区切り/大文字厳密-false を明示的に固定する。
+describe("parseStaffAllowlist: 境界ケース補完(2-9 HIGH)", () => {
+  it("桁超過 A01877(数字5桁)は fail-loud で throw する", () => {
+    // Arrange / Act / Assert
+    expect(() => parseStaffAllowlist("A01877")).toThrow();
+  });
+
+  it("英字なし 01877(先頭が数字)は fail-loud で throw する", () => {
+    expect(() => parseStaffAllowlist("01877")).toThrow();
+  });
+
+  it("改行のみを区切りにしても正しく分割して Set にする", () => {
+    const set = parseStaffAllowlist("A0187\nB0002");
+    expect(set).toEqual(new Set(["A0187", "B0002"]));
+  });
+
+  it("タブのみを区切りにしても正しく分割して Set にする", () => {
+    const set = parseStaffAllowlist("A0187\tB0002");
+    expect(set).toEqual(new Set(["A0187", "B0002"]));
+  });
+
+  it("連続区切り A0187,,B0002 は空要素として throw せず 1 区切りに畳んで Set 化する(実挙動)", () => {
+    // 注意(食い違い): ムーディ列挙は「空要素混在は throw」を期待したが、実装のセパレータ
+    // /[\s,]+/ は連続区切りを 1 つに畳み、空要素は filter(length>0) で除去される。よって
+    // isValidStaffCode に空文字は到達せず throw しない。ここでは実挙動(=安全側: 誤って
+    // 通す要素は増えない)を固定する。挙動変更の要否は検証役/社長判断。
+    expect(parseStaffAllowlist("A0187,,B0002")).toEqual(
+      new Set(["A0187", "B0002"]),
+    );
+    expect(parseStaffAllowlist("A0187, ,B0002")).toEqual(
+      new Set(["A0187", "B0002"]),
+    );
+  });
+});
+
+describe("isStaffAllowed: 大文字厳密判定の補完(2-9 HIGH)", () => {
+  it("Set は大文字格納・小文字 a0187 は完全一致せず false(has 厳密)", () => {
+    // Arrange
+    const set = new Set(["A0187"]);
+    // Act / Assert
+    expect(isStaffAllowed("a0187", set)).toBe(false);
+    expect(isStaffAllowed("A0187", set)).toBe(true);
+  });
+});
