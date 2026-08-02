@@ -110,21 +110,12 @@ export async function executePlan(
 // ジョブカン確定シフト取込（Step 2-3）: 期間取得 + 日内plan実行
 // ---------------------------------------------------------------------------
 
-/** ISO 8601 dateTime → "YYYY-MM-DD"（fmtISO と同方式で +9h JST 日付化） */
-function jstDate(iso: string): string {
-  const d = new Date(iso);
-  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-  const y = jst.getUTCFullYear();
-  const m = String(jst.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(jst.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 /**
  * Google イベント → ExistingEvent 正規化。純関数(planJobcanDayUpsert)へ渡す形へ落とす。
  * - managedBy/shiftId は extendedProperties.private から verbatim(trim/case変換せず null→undefined のみ)。
  *   突合の厳密等価を壊さないため、ここで加工しない。
- * - startTime/endTime は fmtISO で "HH:MM" 厳密(秒を落とす=slot照合のチャーン穴封じ)。
+ * - date/startTime/endTime は parseIsoToJst で JST 正規化。時刻は "HH:MM" 厳密
+ *   (秒を落とす=slot照合のチャーン穴封じ)。
  * - id 無し / 終日イベント(start.date のみで dateTime 無し)は null で除外。
  */
 function toExistingEvent(e: calendar_v3.Schema$Event): ExistingEvent | null {
@@ -132,13 +123,15 @@ function toExistingEvent(e: calendar_v3.Schema$Event): ExistingEvent | null {
   const startDt = e.start?.dateTime;
   const endDt = e.end?.dateTime;
   if (!startDt || !endDt) return null;
+  const start = parseIsoToJst(startDt);
+  const end = parseIsoToJst(endDt);
   return {
     id: e.id,
     shiftId: e.extendedProperties?.private?.shiftId ?? undefined,
     managedBy: e.extendedProperties?.private?.managedBy ?? undefined,
-    date: jstDate(startDt),
-    startTime: fmtISO(startDt),
-    endTime: fmtISO(endDt),
+    date: start.date,
+    startTime: start.time,
+    endTime: end.time,
   };
 }
 
