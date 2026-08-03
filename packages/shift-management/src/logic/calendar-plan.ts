@@ -1,6 +1,15 @@
 import type { ShiftChange, ShiftTime } from "../types";
 
 /**
+ * カレンダーに入れるシフト予定のタイトル（固定）。
+ *
+ * シフト予定を作る経路はすべてこの定数を使うこと。当ツールの方式を親とし、
+ * 後から足す取込経路（ジョブカン確定シフト等）も同じタイトルに揃える。
+ * 時刻はタイトルに含めない — 予定の時間枠そのもので表現する。
+ */
+export const SHIFT_EVENT_SUMMARY = "SHO-SANシフト";
+
+/**
  * upsert判定に渡す既存カレンダーイベントの最小形。
  * apps/web 側で Google の events.list 結果（start.dateTime 等）を
  * この形へ正規化してから渡す（純関数を Google のスキーマから切り離すため）。
@@ -40,7 +49,7 @@ export interface NewEventSpec {
   startTime: string;
   /** "HH:MM" */
   endTime: string;
-  /** 例: "シフト 12:00-18:00" */
+  /** 常に SHIFT_EVENT_SUMMARY（"SHO-SANシフト"） */
   summary: string;
   /**
    * 変更理由（あれば）。apps/web 側で元Slackメッセージへの
@@ -71,7 +80,10 @@ function buildShiftId(slackUserId: string, date: string): string {
   return `${slackUserId}:${date}`;
 }
 
-/** 同じ日付・同じ開始/終了時刻の予定か */
+/**
+ * 同じ日付・同じ開始/終了時刻の予定か（すべてJST基準の "YYYY-MM-DD" / "HH:MM" 比較）。
+ * 予定のタイトルは一切見ない — シフトの同定は時間だけで行う。
+ */
 function sameSlot(event: ExistingEvent, slot: ShiftTime): boolean {
   return (
     event.date === slot.date &&
@@ -91,7 +103,7 @@ function buildNewEvent(
     date: after.date,
     startTime: after.startTime,
     endTime: after.endTime,
-    summary: `シフト ${after.startTime}-${after.endTime}`,
+    summary: SHIFT_EVENT_SUMMARY,
     description: reason,
   };
 }
@@ -99,11 +111,19 @@ function buildNewEvent(
 /**
  * DESIGN.md「全体フロー」の upsert 手順を副作用なしで計画する純関数。
  *
+ * 元シフトの同定は**時間だけ**で行う（タイトルは見ない）。JST基準の
+ * 日付+開始+終了が「変更前」と完全一致する予定だけが削除候補になる。
+ *
  * 削除候補の決め方（安全側に倒す）:
- *   1. shiftId が一致する当ツール管理イベントがあれば、それを削除対象にする
- *   2. 無ければ「変更前の時間帯」に一致する予定を探し、**ちょうど1件**なら削除対象
- *   3. 0件 or 複数件なら削除しない（新予定だけ作り、手動削除を促す警告を出す）
- *   4. 変更後の予定を作成する（shiftId付き）
+ *   1. 「変更前の時間帯」に完全一致する予定を集める
+ *   2. その中に shiftId 一致（当ツール管理）があれば、それを全て削除対象にする
+ *   3. 無ければ、候補が**ちょうど1件**のときだけ削除対象にする
+ *   4. 0件 or 複数件なら削除しない（新予定だけ作り、手動削除を促す警告を出す）
+ *   5. 変更後の予定を作成する（shiftId付き）
+ *
+ * 冪等性:
+ *   変更後と同じ予定が既にあれば作成はスキップするが、削除は行う。
+ *   （前回が作成だけ成功した場合に古い予定を取り残さないため）
  *
  * kind ごとの扱い:
  *   - "modify": before で削除候補を探し、after を作成
@@ -119,30 +139,31 @@ export function planCalendarUpsert(
 ): CalendarPlan {
   const warnings: string[] = [];
 
+  // 「変更前が見つからない」は、既に反映済み（再報告）なら正常系なので
+  // 最後まで警告するか決めない。フラグで持ち越す。
+  let beforeMissing = false;
+
   // --- 削除候補の決定（cancel/modify のみ。add は探さない） ---
   const deleteEventIds: string[] = [];
   if (change.kind !== "add" && change.before) {
+    // 候補は「変更前の時間帯に完全一致する予定」だけ。タイトルも shiftId も入口にはしない。
+    const bySlot = existing.filter((e) => sameSlot(e, change.before!));
     const shiftId = buildShiftId(change.slackUserId, change.before.date);
-    const byShiftId = existing.filter((e) => e.shiftId === shiftId);
+    const managed = bySlot.filter((e) => e.shiftId === shiftId);
 
-    if (byShiftId.length > 0) {
-      // 当ツールが作った予定なので安全に置き換えられる（複数あっても全て掃除）
-      deleteEventIds.push(...byShiftId.map((e) => e.id));
-    } else {
-      const bySlot = existing.filter((e) => sameSlot(e, change.before!));
-      if (bySlot.length === 1) {
-        deleteEventIds.push(bySlot[0].id);
-      } else if (bySlot.length === 0) {
-        if (change.kind !== "cancel") {
-          warnings.push(
-            `変更前の予定（${change.before.date} ${change.before.startTime}-${change.before.endTime}）が見つかりませんでした。手動で削除をお願いします。`,
-          );
-        }
-      } else {
-        warnings.push(
-          `変更前の時間帯（${change.before.date} ${change.before.startTime}-${change.before.endTime}）に一致する予定が${bySlot.length}件あるため、自動削除は見送りました。手動で削除をお願いします。`,
-        );
+    if (managed.length > 0) {
+      // 時間が一致したうえで当ツール管理分と分かるので、複数あっても安全に掃除できる
+      deleteEventIds.push(...managed.map((e) => e.id));
+    } else if (bySlot.length === 1) {
+      deleteEventIds.push(bySlot[0].id);
+    } else if (bySlot.length === 0) {
+      if (change.kind !== "cancel") {
+        beforeMissing = true;
       }
+    } else {
+      warnings.push(
+        `変更前の時間帯（${change.before.date} ${change.before.startTime}-${change.before.endTime}）に一致する予定が${bySlot.length}件あるため、自動削除は見送りました。手動で削除をお願いします。`,
+      );
     }
   }
 
@@ -151,21 +172,32 @@ export function planCalendarUpsert(
   if (change.kind === "cancel") {
     // deleteEventIds が空 & 警告なし → すでに取り消し済み（冪等）
   } else if (change.after) {
-    create = buildNewEvent(change.slackUserId, change.after, change.reason);
+    const spec = buildNewEvent(change.slackUserId, change.after, change.reason);
 
-    // 冪等性チェック: 変更後と同じイベントがすでに存在すればスキップ
+    // 冪等性チェック: 変更後と同じイベントがすでに存在すれば作成はスキップ
     const alreadyExists = existing.some(
       (e) =>
-        e.shiftId === create!.shiftId &&
-        e.startTime === create!.startTime &&
-        e.endTime === create!.endTime,
+        e.shiftId === spec.shiftId &&
+        e.startTime === spec.startTime &&
+        e.endTime === spec.endTime,
     );
     if (alreadyExists) {
-      return { deleteEventIds: [], create: null, warnings: [] };
+      // 作成はしないが、**削除は捨てない**。
+      // 前回の実行が作成だけ成功して古い予定が残っている場合、ここで消さないと
+      // 「完了と返信されたのに元の予定が変わらない」状態になる。
+      // 変更前が見つからないのは反映済みを意味するので、その警告は出さない。
+      return { deleteEventIds, create: null, warnings };
     }
+    create = spec;
   } else {
     warnings.push(
       "変更後のシフト時間を特定できなかったため、予定を作成できませんでした。",
+    );
+  }
+
+  if (beforeMissing && change.before) {
+    warnings.push(
+      `変更前の予定（${change.before.date} ${change.before.startTime}-${change.before.endTime}）が見つかりませんでした。手動で削除をお願いします。`,
     );
   }
 

@@ -33,14 +33,36 @@ describe("planCalendarUpsert: 作成内容", () => {
       date: "2026-06-30",
       startTime: "12:00",
       endTime: "18:00",
-      summary: "シフト 12:00-18:00",
+      summary: "SHO-SANシフト",
       description: "定例等があるため",
     });
   });
 });
 
 describe("planCalendarUpsert: 削除候補の安全判定", () => {
-  it("shiftId 一致の既存イベントがあればそれを削除する（時間帯検索より優先）", () => {
+  it("shiftId が一致しても変更前の時間帯と違う予定は消さない（同定は時間のみ）", () => {
+    const existing = [
+      // 当ツールが作った同日の別シフト（9:00-15:00）。before は 16:00-22:00
+      evt({
+        id: "otherShift",
+        shiftId: "U012ABCDEF:2026-06-30",
+        startTime: "09:00",
+        endTime: "15:00",
+      }),
+    ];
+    const plan = planCalendarUpsert(MODIFY, existing);
+    expect(plan.deleteEventIds).toEqual([]);
+    expect(plan.warnings[0]).toContain("見つかりません");
+  });
+
+  it("時間が一致すればタイトル無関係に同一シフトとみなす", () => {
+    // ExistingEvent はタイトルを持たない = 判定に使えない、を型で担保
+    const existing = [evt({ id: "手動で作った別名の予定" })];
+    const plan = planCalendarUpsert(MODIFY, existing);
+    expect(plan.deleteEventIds).toEqual(["手動で作った別名の予定"]);
+  });
+
+  it("shiftId 一致の既存イベントがあればそれを削除する（同時間帯の他予定は残す）", () => {
     const existing = [
       evt({ id: "managed1", shiftId: "U012ABCDEF:2026-06-30" }),
       // 紛らわしい同時間帯の別予定があっても shiftId 側だけ消す
@@ -138,6 +160,23 @@ describe("planCalendarUpsert: 冪等性（重複防止）", () => {
     const plan = planCalendarUpsert(MODIFY, existing);
     expect(plan.deleteEventIds).toEqual([]);
     expect(plan.create).toBeNull();
+    expect(plan.warnings).toEqual([]);
+  });
+
+  it("変更後の予定が既にあっても、変更前の予定が残っていれば削除する", () => {
+    // 前回の実行が「作成だけ成功」した状態。ここで消さないと元の予定が残り続ける
+    const existing = [
+      evt({
+        id: "newAlreadyCreated",
+        shiftId: "U012ABCDEF:2026-06-30",
+        startTime: "12:00",
+        endTime: "18:00",
+      }),
+      evt({ id: "oldLeftOver" }), // 6/30 16:00-22:00
+    ];
+    const plan = planCalendarUpsert(MODIFY, existing);
+    expect(plan.deleteEventIds).toEqual(["oldLeftOver"]);
+    expect(plan.create).toBeNull(); // 二重作成はしない
     expect(plan.warnings).toEqual([]);
   });
 

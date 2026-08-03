@@ -75,6 +75,15 @@ export function formatResultMessage(results: PipelineResult[]): string {
     if (executed.createdEventId) {
       lines.push(`  作成: 完了`);
     }
+    // 削除も作成も走らず警告も無い = すでに反映済み。
+    // 何も書かないと「完了したのにカレンダーが変わらない」と誤解されるため明示する。
+    if (
+      executed.deletedCount === 0 &&
+      !executed.createdEventId &&
+      plan.warnings.length === 0
+    ) {
+      lines.push(`  変更なし（すでに反映済み）`);
+    }
 
     for (const w of plan.warnings) {
       lines.push(`  :warning: ${w}`);

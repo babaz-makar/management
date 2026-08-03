@@ -3,6 +3,9 @@
 Slackのシフト変更報告を起点に、各スタッフの個人Googleカレンダーへシフト変更を自動反映するツール。
 `packages/shift-management`（このモノレポ）で開発し、最終的に本アプリへ結合する。
 
+> 関連機能：**シフトリマインド**（カレンダーのシフトを読んで前日夜・当日朝にSlackへ事前通知）は
+> このツールの OAuth トークンとシフトタイトル定数を共有する追加機能です。→ [docs/shift-remind.md](./docs/shift-remind.md)
+
 ## 決定事項（経緯サマリ）
 
 | 論点 | 決定 |
@@ -105,7 +108,20 @@ export interface StaffToken {
   { "extendedProperties": { "private": { "shiftId": "<slackUserId>:<date>", "managedBy": "shift-management" } } }
   ```
 - upsert検索は `events.list` の `privateExtendedProperty=shiftId=...` を使用（calendarId は `primary`）
-- イベントタイトル例: `シフト 12:00-18:00`、description に変更理由と元Slackメッセージへのリンク
+- イベントタイトルは固定で `SHO-SANシフト`、description に変更理由と元Slackメッセージへのリンク
+  - 定数 `SHIFT_EVENT_SUMMARY`（`src/logic/calendar-plan.ts`）が唯一の定義。
+    **シフト予定を作成する経路は、どれもこの定数を使うこと**（ジョブカン取込など後から足す経路も含め、
+    このツールの方式を親とする。タイトルに時刻を含めない）
+- **元シフトの同定は時間のみで行う（タイトルは判定に使わない）**
+  - 「変更前」の 日付＋開始＋終了 が**完全一致**する予定だけが削除候補
+  - 候補の中に `shiftId` 一致（当ツール管理）があればそれを削除、無ければ候補が1件のときだけ削除
+  - `shiftId` が一致しても時間が違う予定は削除しない（同日に複数シフトがあっても誤爆しない）
+  - 冪等: 変更後と同じ予定が既にあれば**作成だけ**スキップし、削除は行う
+    （前回が作成だけ成功したときに古い予定を取り残さないため）
+- **日付・時刻はすべてJST（Asia/Tokyo）で扱う**（`src/logic/jst.ts`）
+  - 既存予定の読み取りは開始時刻をJST変換し、JSTで当日開始の予定だけを対象にする
+  - 年補完もメッセージ時刻をJSTで解釈する
+  - イベント作成は `timeZone: "Asia/Tokyo"` 固定。実行環境がUTCでも結果が変わらない
 
 ## Slack連携
 

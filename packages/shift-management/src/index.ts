@@ -9,12 +9,15 @@ export type {
   Assignments,
   ScheduleState,
   ShiftChange,
-  ShiftEntry,
   ShiftTime,
   ShiftType,
   StaffMember,
   StaffToken,
 } from "./types";
+// ジョブカン取込の1件（ジョブカン → カレンダーへ書き込む元データ）。
+// リマインドの ShiftEntry（カレンダー → Slack へ読み出した結果）とは別概念のため、
+// バレルでは別名で公開して同名衝突を避ける。
+export type { ShiftEntry as JobcanShiftEntry } from "./types";
 export { assignmentKey } from "./types";
 
 // Slack変更報告パーサー（DESIGN.md フェーズ1）
@@ -76,6 +79,7 @@ export {
   getAuthUrl,
   listEventsForDate,
   executePlan,
+  calendarClient,
   listEventsForRange,
   executeJobcanDayPlan,
   verifySlackRequest,
@@ -158,4 +162,70 @@ export type {
   ImportHistoryRecord,
   ImportHistoryRow,
   ImportHistorySummary,
+} from "./server";
+// ---------------------------------------------------------------------------
+// シフトリマインド機能（カレンダーのシフトを読んで Slack へ事前通知）
+// ---------------------------------------------------------------------------
+export { SHIFT_EVENT_SUMMARY } from "./logic/calendar-plan";
+export { isShiftTitle, normalizeTitle, SHIFT_TITLE_KEYWORD } from "./remind/is-shift";
+export {
+  resolveTargetDate,
+  addDays,
+  formatDateLabel,
+  jstDayRange,
+} from "./remind/target-date";
+export {
+  formatRemindMessage,
+  formatRange,
+  formatWarningMessage,
+  formatConnectDm,
+  formatConnectNotice,
+  formatMemberAdded,
+  connectUrl,
+} from "./remind/format-message";
+export type { FormatRemindOptions } from "./remind/format-message";
+export {
+  buildMembersView,
+  buildBotJoinedBlocks,
+  buildUserJoinedBlocks,
+  parseMembersSubmission,
+  parseActionValue,
+  MEMBERS_CALLBACK_ID,
+  ACTION_OPEN_MEMBERS,
+  ACTION_ADD_MEMBER,
+  ACTION_DISMISS,
+} from "./remind/views";
+export type { MembersSubmission } from "./remind/views";
+export type {
+  RemindTiming,
+  RemindMember,
+  ChannelMember,
+  // カレンダーから読み出したシフト1件。取込側の JobcanShiftEntry とは別概念
+  ShiftEntry,
+  MemberShiftResult,
+} from "./remind/types";
+export {
+  getShiftsForMember,
+  getShiftsForMembers,
+  nowJstLabel,
+  slackApi,
+  postMessage,
+  openView,
+  respondEphemeral,
+  respondWebhook,
+  openDirectMessage,
+  getBotUserId,
+  listConversationMembers,
+  filterHumanUsers,
+  requestCalendarConnect,
+  runRemind,
+} from "./server";
+export type {
+  RunRemindOptions,
+  RunRemindResult,
+  ChannelRunResult,
+  ConnectRequestResult,
+  RemindStore,
+  RemindSettings,
+  NotificationTarget,
 } from "./server";

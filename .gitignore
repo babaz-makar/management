@@ -18,7 +18,9 @@ build/
 .env*.local
 
 # token store (contains OAuth refresh tokens)
-data/tokens.json
+# 先頭以外のスラッシュを含むパターンはルート起点になるため、
+# apps/web/data/tokens.json も確実に無視されるよう ** を付ける
+**/data/tokens.json
 
 # logs
 *.log
@@ -32,6 +34,11 @@ pnpm-debug.log*
 
 # claude code (personal settings; 共有は .claude/settings.json)
 .claude/settings.local.json
+
+# vercel cli
+.vercel/
+
+.vercel
 
 # coverage (generated)
 coverage/
